@@ -8,9 +8,9 @@ from tqdm import tqdm
 import cv2
 import numpy as np
 
-data_path = Path('data')
+data_path = Path('/media/vakko/1f705bab-efa3-4021-966a-6a1651816881/Endovis/2017')
 
-train_path = data_path / 'train'
+train_path = data_path / 'training'
 
 cropped_train_path = data_path / 'cropped_train'
 
