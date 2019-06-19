@@ -1,4 +1,5 @@
 # Byte-compiled / optimized / DLL files
+/data/
 __pycache__/
 *.py[cod]
 *$py.class
@@ -99,3 +100,6 @@ ENV/
 
 # mypy
 .mypy_cache/
+
+*.bak
+modules/__pycache__/

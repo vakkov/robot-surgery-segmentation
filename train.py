@@ -80,7 +80,7 @@ def main():
     if args.model == 'UNet':
         model = UNet(num_classes=num_classes)
     elif args.model == 'TernausNetV2':
-	model = TernausNetV2(num_classes=num_classes)
+        model = TernausNetV2(num_classes=num_classes)
     else:
         model_name = moddel_list[args.model]
         model = model_name(num_classes=num_classes, pretrained=True)
@@ -108,6 +108,7 @@ def main():
             num_workers=args.workers,
             batch_size=batch_size,
             pin_memory=torch.cuda.is_available()
+            #pin_memory=True
         )
 
     train_file_names, val_file_names = get_split(args.fold)
