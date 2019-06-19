@@ -79,7 +79,7 @@ def main():
 
     if args.model == 'UNet':
         model = UNet(num_classes=num_classes)
-    if args.model == 'TernausNetV2':
+    elif args.model == 'TernausNetV2':
 	model = TernausNetV2(num_classes=num_classes)
     else:
         model_name = moddel_list[args.model]
