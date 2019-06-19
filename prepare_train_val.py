@@ -1,5 +1,9 @@
-from prepare_data import data_path
+#from prepare_data import data_path
+import os
+from pathlib import Path
 
+#data_path = os.path.join(os.path.abspath(__file__), 'data')
+data_path = Path(__file__).resolve().parent / 'data'
 
 def get_split(fold):
     folds = {0: [1, 3],
@@ -7,7 +11,7 @@ def get_split(fold):
              2: [4, 8],
              3: [6, 7]}
 
-    train_path = data_path / 'cropped_train'
+    train_path = Path.joinpath(data_path, 'cropped_train')
 
     train_file_names = []
     val_file_names = []
