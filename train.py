@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader
 import torch.backends.cudnn as cudnn
 import torch.backends.cudnn
 
-from models import UNet11, LinkNet34, UNet, UNet16, AlbuNet
+from models import TernausNetV2, UNet11, LinkNet34, UNet, UNet16, AlbuNet
 from loss import LossBinary, LossMulti
 from dataset import RoboticsDataset
 import utils
@@ -27,7 +27,8 @@ from albumentations import (
     CenterCrop
 )
 
-moddel_list = {'UNet11': UNet11,
+moddel_list = {'TernausNetV2': TernausNetV2,
+               'UNet11': UNet11,
                'UNet16': UNet16,
                'UNet': UNet,
                'AlbuNet': AlbuNet,
@@ -78,6 +79,8 @@ def main():
 
     if args.model == 'UNet':
         model = UNet(num_classes=num_classes)
+    if args.model == 'TernausNetV2':
+	model = TernausNetV2(num_classes=num_classes)
     else:
         model_name = moddel_list[args.model]
         model = model_name(num_classes=num_classes, pretrained=True)
