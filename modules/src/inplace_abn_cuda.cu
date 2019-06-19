@@ -5,25 +5,11 @@
 
 #include <vector>
 
-#include "common.h"
+#include "utils/checks.h"
+#include "utils/cuda.cuh"
 #include "inplace_abn.h"
 
-// Checks
-#ifndef AT_CHECK
-  #define AT_CHECK AT_ASSERT
-#endif
-#define CHECK_CUDA(x) AT_CHECK(x.type().is_cuda(), #x " must be a CUDA tensor")
-#define CHECK_CONTIGUOUS(x) AT_CHECK(x.is_contiguous(), #x " must be contiguous")
-#define CHECK_INPUT(x) CHECK_CUDA(x); CHECK_CONTIGUOUS(x)
-
-// Utilities
-void get_dims(at::Tensor x, int64_t& num, int64_t& chn, int64_t& sp) {
-  num = x.size(0);
-  chn = x.size(1);
-  sp = 1;
-  for (int64_t i = 2; i < x.ndimension(); ++i)
-    sp *= x.size(i);
-}
+#include <ATen/cuda/CUDAContext.h>
 
 // Operations for reduce
 template<typename T>
@@ -78,9 +64,9 @@ __global__ void mean_var_kernel(const T *x, T *mean, T *var, int num, int chn, i
   int plane = blockIdx.x;
   T norm = T(1) / T(num * sp);
 
-  T _mean = reduce<T, SumOp<T>>(SumOp<T>(x, chn, sp), plane, num, chn, sp) * norm;
+  T _mean = reduce<T, SumOp<T>>(SumOp<T>(x, chn, sp), plane, num, sp) * norm;
   __syncthreads();
-  T _var = reduce<T, VarOp<T>>(VarOp<T>(_mean, x, chn, sp), plane, num, chn, sp) * norm;
+  T _var = reduce<T, VarOp<T>>(VarOp<T>(_mean, x, chn, sp), plane, num, sp) * norm;
 
   if (threadIdx.x == 0) {
     mean[plane] = _mean;
@@ -89,23 +75,22 @@ __global__ void mean_var_kernel(const T *x, T *mean, T *var, int num, int chn, i
 }
 
 std::vector<at::Tensor> mean_var_cuda(at::Tensor x) {
-  CHECK_INPUT(x);
+  CHECK_CUDA_INPUT(x);
 
   // Extract dimensions
   int64_t num, chn, sp;
   get_dims(x, num, chn, sp);
 
   // Prepare output tensors
-//  auto mean = at::empty(x.type(), {chn});
-//  auto var = at::empty(x.type(), {chn});
-auto mean = at::empty({chn},x.options().dtype(at::kFloat));
-auto var = at::empty({chn},x.options().dtype(at::kFloat));
+  auto mean = at::empty({chn}, x.options());
+  auto var = at::empty({chn}, x.options());
 
   // Run kernel
   dim3 blocks(chn);
   dim3 threads(getNumThreads(sp));
+  auto stream = at::cuda::getCurrentCUDAStream();
   AT_DISPATCH_FLOATING_TYPES(x.type(), "mean_var_cuda", ([&] {
-    mean_var_kernel<scalar_t><<<blocks, threads>>>(
+    mean_var_kernel<scalar_t><<<blocks, threads, 0, stream>>>(
         x.data<scalar_t>(),
         mean.data<scalar_t>(),
         var.data<scalar_t>(),
@@ -143,11 +128,11 @@ __global__ void forward_kernel(T *x, const T *mean, const T *var, const T *weigh
 
 at::Tensor forward_cuda(at::Tensor x, at::Tensor mean, at::Tensor var, at::Tensor weight, at::Tensor bias,
                         bool affine, float eps) {
-  CHECK_INPUT(x);
-  CHECK_INPUT(mean);
-  CHECK_INPUT(var);
-  CHECK_INPUT(weight);
-  CHECK_INPUT(bias);
+  CHECK_CUDA_INPUT(x);
+  CHECK_CUDA_INPUT(mean);
+  CHECK_CUDA_INPUT(var);
+  CHECK_CUDA_INPUT(weight);
+  CHECK_CUDA_INPUT(bias);
 
   // Extract dimensions
   int64_t num, chn, sp;
@@ -156,8 +141,9 @@ at::Tensor forward_cuda(at::Tensor x, at::Tensor mean, at::Tensor var, at::Tenso
   // Run kernel
   dim3 blocks(chn);
   dim3 threads(getNumThreads(sp));
+  auto stream = at::cuda::getCurrentCUDAStream();
   AT_DISPATCH_FLOATING_TYPES(x.type(), "forward_cuda", ([&] {
-    forward_kernel<scalar_t><<<blocks, threads>>>(
+    forward_kernel<scalar_t><<<blocks, threads, 0, stream>>>(
         x.data<scalar_t>(),
         mean.data<scalar_t>(),
         var.data<scalar_t>(),
@@ -181,7 +167,7 @@ __global__ void edz_eydz_kernel(const T *z, const T *dz, const T *weight, const 
   T _weight = affine ? abs(weight[plane]) + eps : 1.f;
   T _bias = affine ? bias[plane] : 0.f;
 
-  Pair<T> res = reduce<Pair<T>, GradOp<T>>(GradOp<T>(_weight, _bias, z, dz, chn, sp), plane, num, chn, sp);
+  Pair<T> res = reduce<Pair<T>, GradOp<T>>(GradOp<T>(_weight, _bias, z, dz, chn, sp), plane, num, sp);
   __syncthreads();
 
   if (threadIdx.x == 0) {
@@ -192,26 +178,24 @@ __global__ void edz_eydz_kernel(const T *z, const T *dz, const T *weight, const 
 
 std::vector<at::Tensor> edz_eydz_cuda(at::Tensor z, at::Tensor dz, at::Tensor weight, at::Tensor bias,
                                       bool affine, float eps) {
-  CHECK_INPUT(z);
-  CHECK_INPUT(dz);
-  CHECK_INPUT(weight);
-  CHECK_INPUT(bias);
+  CHECK_CUDA_INPUT(z);
+  CHECK_CUDA_INPUT(dz);
+  CHECK_CUDA_INPUT(weight);
+  CHECK_CUDA_INPUT(bias);
 
   // Extract dimensions
   int64_t num, chn, sp;
   get_dims(z, num, chn, sp);
 
-//  auto edz = at::empty(z.type(), {chn});
-//  auto eydz = at::empty(z.type(), {chn});
-
-auto edz = at::empty({chn},z.options().dtype(at::kFloat));
-auto eydz = at::empty({chn},z.options().dtype(at::kFloat));
+  auto edz = at::empty({chn}, z.options());
+  auto eydz = at::empty({chn}, z.options());
 
   // Run kernel
   dim3 blocks(chn);
   dim3 threads(getNumThreads(sp));
+  auto stream = at::cuda::getCurrentCUDAStream();
   AT_DISPATCH_FLOATING_TYPES(z.type(), "edz_eydz_cuda", ([&] {
-    edz_eydz_kernel<scalar_t><<<blocks, threads>>>(
+    edz_eydz_kernel<scalar_t><<<blocks, threads, 0, stream>>>(
         z.data<scalar_t>(),
         dz.data<scalar_t>(),
         weight.data<scalar_t>(),
@@ -230,8 +214,7 @@ auto eydz = at::empty({chn},z.options().dtype(at::kFloat));
 
 template<typename T>
 __global__ void backward_kernel(const T *z, const T *dz, const T *var, const T *weight, const T *bias, const T *edz,
-                                const T *eydz, T *dx, T *dweight, T *dbias,
-                                bool affine, float eps, int num, int chn, int sp) {
+	                        const T *eydz, T *dx, bool affine, float eps, int num, int chn, int sp) {
   int plane = blockIdx.x;
 
   T _weight = affine ? abs(weight[plane]) + eps : 1.f;
@@ -251,38 +234,30 @@ __global__ void backward_kernel(const T *z, const T *dz, const T *var, const T *
       dx[(batch * chn + plane) * sp + n] = (_dz - _edz / count - _y * _eydz / count) * _mul;
     }
   }
-
-  if (threadIdx.x == 0) {
-    if (affine) {
-      dweight[plane] = weight[plane] > 0 ? _eydz : -_eydz;
-      dbias[plane] = _edz;
-    }
-  }
 }
 
-std::vector<at::Tensor> backward_cuda(at::Tensor z, at::Tensor dz, at::Tensor var, at::Tensor weight, at::Tensor bias,
+at::Tensor backward_cuda(at::Tensor z, at::Tensor dz, at::Tensor var, at::Tensor weight, at::Tensor bias,
                                       at::Tensor edz, at::Tensor eydz, bool affine, float eps) {
-  CHECK_INPUT(z);
-  CHECK_INPUT(dz);
-  CHECK_INPUT(var);
-  CHECK_INPUT(weight);
-  CHECK_INPUT(bias);
-  CHECK_INPUT(edz);
-  CHECK_INPUT(eydz);
+  CHECK_CUDA_INPUT(z);
+  CHECK_CUDA_INPUT(dz);
+  CHECK_CUDA_INPUT(var);
+  CHECK_CUDA_INPUT(weight);
+  CHECK_CUDA_INPUT(bias);
+  CHECK_CUDA_INPUT(edz);
+  CHECK_CUDA_INPUT(eydz);
 
   // Extract dimensions
   int64_t num, chn, sp;
   get_dims(z, num, chn, sp);
 
   auto dx = at::zeros_like(z);
-  auto dweight = at::zeros_like(weight);
-  auto dbias = at::zeros_like(bias);
 
   // Run kernel
   dim3 blocks(chn);
   dim3 threads(getNumThreads(sp));
+  auto stream = at::cuda::getCurrentCUDAStream();
   AT_DISPATCH_FLOATING_TYPES(z.type(), "backward_cuda", ([&] {
-    backward_kernel<scalar_t><<<blocks, threads>>>(
+    backward_kernel<scalar_t><<<blocks, threads, 0, stream>>>(
         z.data<scalar_t>(),
         dz.data<scalar_t>(),
         var.data<scalar_t>(),
@@ -291,12 +266,10 @@ std::vector<at::Tensor> backward_cuda(at::Tensor z, at::Tensor dz, at::Tensor va
         edz.data<scalar_t>(),
         eydz.data<scalar_t>(),
         dx.data<scalar_t>(),
-        dweight.data<scalar_t>(),
-        dbias.data<scalar_t>(),
         affine, eps, num, chn, sp);
   }));
 
-  return {dx, dweight, dbias};
+  return dx;
 }
 
 /**************
@@ -309,17 +282,20 @@ inline void leaky_relu_backward_impl(T *z, T *dz, float slope, int64_t count) {
   thrust::device_ptr<T> th_z = thrust::device_pointer_cast(z);
   thrust::device_ptr<T> th_dz = thrust::device_pointer_cast(dz);
 
-  thrust::transform_if(th_dz, th_dz + count, th_z, th_dz,
+  auto stream = at::cuda::getCurrentCUDAStream();
+  thrust::transform_if(thrust::cuda::par.on(stream),
+                       th_dz, th_dz + count, th_z, th_dz,
                        [slope] __device__ (const T& dz) { return dz * slope; },
                        [] __device__ (const T& z) { return z < 0; });
-  thrust::transform_if(th_z, th_z + count, th_z,
+  thrust::transform_if(thrust::cuda::par.on(stream),
+                       th_z, th_z + count, th_z,
                        [slope] __device__ (const T& z) { return z / slope; },
                        [] __device__ (const T& z) { return z < 0; });
 }
 
 void leaky_relu_backward_cuda(at::Tensor z, at::Tensor dz, float slope) {
-  CHECK_INPUT(z);
-  CHECK_INPUT(dz);
+  CHECK_CUDA_INPUT(z);
+  CHECK_CUDA_INPUT(dz);
 
   int64_t count = z.numel();
 
@@ -334,17 +310,20 @@ inline void elu_backward_impl(T *z, T *dz, int64_t count) {
   thrust::device_ptr<T> th_z = thrust::device_pointer_cast(z);
   thrust::device_ptr<T> th_dz = thrust::device_pointer_cast(dz);
 
-  thrust::transform_if(th_dz, th_dz + count, th_z, th_z, th_dz,
+  auto stream = at::cuda::getCurrentCUDAStream();
+  thrust::transform_if(thrust::cuda::par.on(stream),
+                       th_dz, th_dz + count, th_z, th_z, th_dz,
                        [] __device__ (const T& dz, const T& z) { return dz * (z + 1.); },
                        [] __device__ (const T& z) { return z < 0; });
-  thrust::transform_if(th_z, th_z + count, th_z,
+  thrust::transform_if(thrust::cuda::par.on(stream),
+                       th_z, th_z + count, th_z,
                        [] __device__ (const T& z) { return log1p(z); },
                        [] __device__ (const T& z) { return z < 0; });
 }
 
 void elu_backward_cuda(at::Tensor z, at::Tensor dz) {
-  CHECK_INPUT(z);
-  CHECK_INPUT(dz);
+  CHECK_CUDA_INPUT(z);
+  CHECK_CUDA_INPUT(dz);
 
   int64_t count = z.numel();
 

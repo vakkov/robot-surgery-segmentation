@@ -2,6 +2,7 @@
 
 #include <vector>
 
+#include "utils/checks.h"
 #include "inplace_abn.h"
 
 at::Tensor reduce_sum(at::Tensor x) {
@@ -71,25 +72,20 @@ std::vector<at::Tensor> edz_eydz_cpu(at::Tensor z, at::Tensor dz, at::Tensor wei
   return {edz, eydz};
 }
 
-std::vector<at::Tensor> backward_cpu(at::Tensor z, at::Tensor dz, at::Tensor var, at::Tensor weight, at::Tensor bias,
+at::Tensor backward_cpu(at::Tensor z, at::Tensor dz, at::Tensor var, at::Tensor weight, at::Tensor bias,
                                      at::Tensor edz, at::Tensor eydz, bool affine, float eps) {
   auto y = invert_affine(z, weight, bias, affine, eps);
   auto mul = affine ? at::rsqrt(var + eps) * (at::abs(weight) + eps) : at::rsqrt(var + eps);
 
   auto num = count(z);
   auto dx = (dz - broadcast_to(edz / num, dz) - y * broadcast_to(eydz / num, dz)) * broadcast_to(mul, dz);
-
-  auto dweight = at::empty(z.type(), {0});
-  auto dbias = at::empty(z.type(), {0});
-  if (affine) {
-    dweight = eydz * at::sign(weight);
-    dbias = edz;
-  }
-
-  return {dx, dweight, dbias};
+  return dx;
 }
 
 void leaky_relu_backward_cpu(at::Tensor z, at::Tensor dz, float slope) {
+  CHECK_CPU_INPUT(z);
+  CHECK_CPU_INPUT(dz);
+
   AT_DISPATCH_FLOATING_TYPES(z.type(), "leaky_relu_backward_cpu", ([&] {
     int64_t count = z.numel();
     auto *_z = z.data<scalar_t>();
@@ -105,6 +101,9 @@ void leaky_relu_backward_cpu(at::Tensor z, at::Tensor dz, float slope) {
 }
 
 void elu_backward_cpu(at::Tensor z, at::Tensor dz) {
+  CHECK_CPU_INPUT(z);
+  CHECK_CPU_INPUT(dz);
+
   AT_DISPATCH_FLOATING_TYPES(z.type(), "elu_backward_cpu", ([&] {
     int64_t count = z.numel();
     auto *_z = z.data<scalar_t>();
