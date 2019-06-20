@@ -67,7 +67,8 @@ class TernausNetV2(nn.Module):
                 False: Upsampling layer is used in the Decoder block.
             num_input_channels: Number of channels in the input images.
         """
-        super(TernausNetV2, self).__init__()
+        #super(TernausNetV2, self).__init__()
+        super().__init__()
 
         if 'norm_act' not in kwargs:
             norm_act = ABN
@@ -75,6 +76,7 @@ class TernausNetV2(nn.Module):
             norm_act = kwargs['norm_act']
 
         self.pool = nn.MaxPool2d(2, 2)
+        self.num_classes = num_classes
 
         encoder = WiderResNet(structure=[3, 3, 6, 3, 1, 1], classes=1000, norm_act=norm_act)
 
