@@ -7,11 +7,13 @@ import numpy as np
 
 import torch
 import tqdm
-
+import sys
 
 def cuda(x):
-    return x.cuda(async=True) if torch.cuda.is_available() else x
-
+    if sys.version_info <= (3, 6):
+        return x.cuda(async=True) if torch.cuda.is_available() else x
+#    else:
+#        return x.cuda(non_blocking=True) if torch.cuda.is_available() else x
 
 def write_event(log, step, **data):
     data['step'] = step
@@ -84,6 +86,7 @@ def train(args, model, criterion, train_loader, valid_loader, validation, init_o
                 loss.backward()
                 optimizer.step()
                 step += 1
+                #step = step + 1
                 tq.update(batch_size)
                 losses.append(loss.item())
                 mean_loss = np.mean(losses[-report_each:])

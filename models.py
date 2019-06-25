@@ -5,17 +5,33 @@ import torchvision
 from torch.nn import functional as F
 from torch.nn import Sequential
 from collections import OrderedDict
-from modules.bn import ABN
+from modules.bn import InPlaceABN
 
 from modules.wider_resnet import WiderResNet
+from pathlib import Path
 
-def conv3x3(in_, out):
-    return nn.Conv2d(in_, out, 3, padding=1)
+
+# def conv3x3(in_, out):
+#     return nn.Conv2d(in_, out, 3, padding=1)
+def conv3x3(in_, out, bias=True):
+    return nn.Conv2d(in_, out, 3, padding=1, bias=bias)
+
+# class ConvRelu(nn.Module):
+#     def __init__(self, in_: int, out: int):
+#         super(ConvRelu, self).__init__()
+#         self.conv = conv3x3(in_, out)
+#         self.activation = nn.ReLU(inplace=True)
+
+#     def forward(self, x):
+#         x = self.conv(x)
+#         x = self.activation(x)
+#         return x
 
 
 class ConvRelu(nn.Module):
+    
     def __init__(self, in_: int, out: int):
-        super(ConvRelu, self).__init__()
+        super().__init__()
         self.conv = conv3x3(in_, out)
         self.activation = nn.ReLU(inplace=True)
 
@@ -24,39 +40,81 @@ class ConvRelu(nn.Module):
         x = self.activation(x)
         return x
 
+class ConvABN(nn.Module):
+
+    def __init__(self, in_: int, out: int, norm_act=InPlaceABN):
+        super().__init__()
+        self.conv = conv3x3(in_, out, bias=False)
+        self.norm_act = norm_act(out)
+
+    def forward(self, x):
+        x = self.conv(x)
+        x = self.norm_act(x)
+        return x
+
+
+# class DecoderBlock(nn.Module):
+#     """
+#     Paramaters for Deconvolution were chosen to avoid artifacts, following
+#     link https://distill.pub/2016/deconv-checkerboard/
+#     """
+
+#     #def __init__(self, in_channels, middle_channels, out_channels, is_deconv=True):
+#     def __init__(self, in_channels, middle_channels, out_channels, norm_act=InPlaceABN):
+#         super(DecoderBlock, self).__init__()
+#         self.in_channels = in_channels
+
+#         if is_deconv:
+#             self.block = nn.Sequential(
+#                 ConvRelu(in_channels, middle_channels),
+#                 nn.ConvTranspose2d(middle_channels, out_channels, kernel_size=4, stride=2,
+#                                    padding=1),
+#                 nn.ReLU(inplace=True)
+#             )
+#         else:
+#             self.block = nn.Sequential(
+# # Ternaus2                nn.Upsample(scale_factor=2, mode='nearest'),
+#                 nn.Upsample(scale_factor=2, mode='bilinear'),
+#                 ConvRelu(in_channels, middle_channels),
+#                 ConvRelu(middle_channels, out_channels),
+#                  #ConvABN(in_channels, middle_channels, norm_act=norm_act),
+#                  #ConvABN(middle_channels, out_channels, norm_act=norm_act)           
+#             )
+
+#     def forward(self, x):
+#         return self.block(x)
+
+class Upsample(nn.Module):
+    
+    def __init__(self):
+        super().__init__()
+        
+    def forward(self, x):
+        return nn.functional.interpolate(x, scale_factor=2, mode='nearest')
 
 class DecoderBlock(nn.Module):
-    """
-    Paramaters for Deconvolution were chosen to avoid artifacts, following
-    link https://distill.pub/2016/deconv-checkerboard/
-    """
-
-    def __init__(self, in_channels, middle_channels, out_channels, is_deconv=True):
-        super(DecoderBlock, self).__init__()
-        self.in_channels = in_channels
-
-        if is_deconv:
-            self.block = nn.Sequential(
-                ConvRelu(in_channels, middle_channels),
-                nn.ConvTranspose2d(middle_channels, out_channels, kernel_size=4, stride=2,
-                                   padding=1),
-                nn.ReLU(inplace=True)
-            )
-        else:
-            self.block = nn.Sequential(
-#TernausNetV2   nn.Upsample(scale_factor=2, mode='nearest'),
-                nn.Upsample(scale_factor=2, mode='bilinear'),
-                ConvRelu(in_channels, middle_channels),
-                ConvRelu(middle_channels, out_channels),
-            )
+    
+    def __init__(self, in_channels, middle_channels, out_channels, norm_act=InPlaceABN):
+        
+        super().__init__()
+        
+        self.block = nn.Sequential(
+            Upsample(),
+            ConvABN(in_channels, middle_channels, norm_act=norm_act),
+            ConvABN(middle_channels, out_channels, norm_act=norm_act)
+#             ConvRelu(in_channels, middle_channels),
+#             ConvRelu(middle_channels, out_channels)
+        )
 
     def forward(self, x):
         return self.block(x)
 
+
 class TernausNetV2(nn.Module):
     """Variation of the UNet architecture with InplaceABN encoder."""
 
-    def __init__(self, num_classes=1, num_filters=32, is_deconv=False, num_input_channels=3, **kwargs):
+    def __init__(self, num_classes=1, pretrained=False, num_filters=32, is_deconv=False, num_input_channels=3, **kwargs):
+    #def __init__(self, num_classes=1, num_filters=32, is_deconv=False, num_input_channels=3, **kwargs):
         """
 
         Args:
@@ -67,18 +125,27 @@ class TernausNetV2(nn.Module):
                 False: Upsampling layer is used in the Decoder block.
             num_input_channels: Number of channels in the input images.
         """
-        #super(TernausNetV2, self).__init__()
+        # super(TernausNetV2, self).__init__()
         super().__init__()
 
         if 'norm_act' not in kwargs:
-            norm_act = ABN
+            norm_act = InPlaceABN
         else:
             norm_act = kwargs['norm_act']
 
         self.pool = nn.MaxPool2d(2, 2)
         self.num_classes = num_classes
 
-        encoder = WiderResNet(structure=[3, 3, 6, 3, 1, 1], classes=1000, norm_act=norm_act)
+        encoder = WiderResNet(structure=[3, 3, 6, 3, 1, 1], classes=num_classes, norm_act=norm_act)
+        # self.encoder_dict = self.encoder.state_dict()
+
+        # if pretrained:
+        #     model_path = Path(__file__).resolve().parent / 'data' / 'models'
+        #     state = torch.load(model_path.as_posix() + "/" + "wide_resnet38_ipabn_lr_256.pth.tar")["state_dict"]
+        #     state = {k.replace('module.', ''): v for k, v in state.items()}
+        #     state = {k: v for k, v in state.items() if k in self.encoder_dict}
+        #     self.encoder_dict.update(state)
+        #     self.encoder.load_state_dict(state)
 
         self.conv1 = Sequential(
             OrderedDict([('conv1', nn.Conv2d(num_input_channels, 64, 3, padding=1, bias=False))]))
@@ -87,12 +154,19 @@ class TernausNetV2(nn.Module):
         self.conv4 = encoder.mod4
         self.conv5 = encoder.mod5
 
-        self.center = DecoderBlock(1024, num_filters * 8, num_filters * 8, is_deconv=is_deconv)
-        self.dec5 = DecoderBlock(1024 + num_filters * 8, num_filters * 8, num_filters * 8, is_deconv=is_deconv)
-        self.dec4 = DecoderBlock(512 + num_filters * 8, num_filters * 8, num_filters * 8, is_deconv=is_deconv)
-        self.dec3 = DecoderBlock(256 + num_filters * 8, num_filters * 2, num_filters * 2, is_deconv=is_deconv)
-        self.dec2 = DecoderBlock(128 + num_filters * 2, num_filters * 2, num_filters, is_deconv=is_deconv)
-        self.dec1 = ConvRelu(64 + num_filters, num_filters)
+        # self.center = DecoderBlock(1024, num_filters * 8, num_filters * 8, is_deconv=is_deconv)
+        # self.dec5 = DecoderBlock(1024 + num_filters * 8, num_filters * 8, num_filters * 8, is_deconv=is_deconv)
+        # self.dec4 = DecoderBlock(512 + num_filters * 8, num_filters * 8, num_filters * 8, is_deconv=is_deconv)
+        # self.dec3 = DecoderBlock(256 + num_filters * 8, num_filters * 2, num_filters * 2, is_deconv=is_deconv)
+        # self.dec2 = DecoderBlock(128 + num_filters * 2, num_filters * 2, num_filters, is_deconv=is_deconv)
+        #self.dec1 = ConvRelu(64 + num_filters, num_filters)
+        self.center = DecoderBlock(1024, num_filters * 8, num_filters * 8, norm_act=norm_act)
+        self.dec5 = DecoderBlock(1024 + num_filters * 8, num_filters * 8, num_filters * 8, norm_act=norm_act)
+        self.dec4 = DecoderBlock(512 + num_filters * 8, num_filters * 8, num_filters * 8, norm_act=norm_act)
+        self.dec3 = DecoderBlock(256 + num_filters * 8, num_filters * 2, num_filters * 2, norm_act=norm_act)
+        self.dec2 = DecoderBlock(128 + num_filters * 2, num_filters * 2, num_filters, norm_act=norm_act)
+        self.dec1 = ConvABN(64 + num_filters, num_filters, norm_act=norm_act)
+
         self.final = nn.Conv2d(num_filters, num_classes, kernel_size=1)
 
     def forward(self, x):
