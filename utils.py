@@ -85,12 +85,13 @@ def train(args, model, criterion, train_loader, valid_loader, validation, init_o
                 batch_size = inputs.size(0)
                 loss.backward()
                 optimizer.step()
-                step += 1
-                #step = step + 1
+                #step += 1
+                step = step + 1
                 tq.update(batch_size)
                 losses.append(loss.item())
                 mean_loss = np.mean(losses[-report_each:])
                 tq.set_postfix(loss='{:.5f}'.format(mean_loss))
+                #torch.cuda.empty_cache()
                 if i and i % report_each == 0:
                     write_event(log, step, loss=mean_loss)
             write_event(log, step, loss=mean_loss)
