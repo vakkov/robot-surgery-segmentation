@@ -87,6 +87,8 @@ def main():
         model = model_name(num_classes=num_classes, pretrained=True)
 
     if torch.cuda.is_available():
+        pin_memory=True
+        torch.cuda.empty_cache()
         if args.device_ids:
             device_ids = list(map(int, args.device_ids.split(',')))
         else:

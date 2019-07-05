@@ -7,6 +7,8 @@ from torch.nn import Sequential
 from collections import OrderedDict
 #from modules.bn import InPlaceABN
 from modules.bn import InPlaceABNSync
+from modules.misc import GlobalAvgPool2d
+
 
 from modules.wider_resnet import WiderResNet
 from pathlib import Path
@@ -105,6 +107,9 @@ class DecoderBlock(nn.Module):
     def forward(self, x):
         return self.block(x)
 
+# class AttenBlock(nn.Module):
+    
+
 
 class TernausNetV2(nn.Module):
     """Variation of the UNet architecture with InplaceABN encoder."""
@@ -139,21 +144,6 @@ class TernausNetV2(nn.Module):
 
         encoder = WiderResNet(structure=[3, 3, 6, 3, 1, 1], classes=1000, norm_act=norm_act)
        
-        #self.encoder_dict = encoder.state_dict()
-
-        # if pretrained:
-        #     model_path = Path(__file__).resolve().parent / 'data' / 'models'
-        #     state = torch.load(model_path.as_posix() + "/" + "wide_resnet38_ipabn_lr_256.pth.tar")["state_dict"]
-        #     # state = {k.replace('module.', ''): v for k, v in state.items()}
-        #     # state = {k: v for k, v in state.items() if k in self.encoder_dict}
-        #     # self.encoder_dict.update(state)
-        #     # self.encoder.load_state_dict(state)
-        #     new_state_dict = OrderedDict()
-        #     for k, v in state.items():
-        #         name = k[7:]  # remove `module.`
-        #         new_state_dict[name] = v
-        #     encoder.fc = nn.Linear(num_input_channels, num_classes)
-        #     encoder.load_state_dict(new_state_dict)
         if pretrained:
             model_path = Path(__file__).resolve().parent / 'data' / 'models'
             checkpoint = torch.load((model_path.as_posix() + "/" + 'wide_resnet38_ipabn_lr_256.pth.tar'))
@@ -168,6 +158,14 @@ class TernausNetV2(nn.Module):
             # new_state_dict = {k: v for k, v in state_dict.items() if k in new_state_dict}
 
             encoder.load_state_dict(new_state_dict)
+            #encoder.fc = nn.Linear(num_input_channels, num_classes)
+            encoder.bn_out = norm_act(num_input_channels)
+            if num_classes != 0:
+                encoder.classifier = nn.Sequential(OrderedDict([
+                    ("avg_pool", GlobalAvgPool2d()),
+                    ("fc", nn.Linear(num_input_channels, num_classes))
+                ]))        
+
 
         if num_input_channels == 1:
             self.conv1 = encoder.mod1
@@ -179,7 +177,7 @@ class TernausNetV2(nn.Module):
         self.conv4 = encoder.mod4
         self.conv5 = encoder.mod5
         #Hacky; TODO FIX
-        self.freeze_encoder();
+        #self.freeze_encoder();
 
         # self.center = DecoderBlock(1024, num_filters * 8, num_filters * 8, is_deconv=is_deconv)
         # self.dec5 = DecoderBlock(1024 + num_filters * 8, num_filters * 8, num_filters * 8, is_deconv=is_deconv)
@@ -210,14 +208,14 @@ class TernausNetV2(nn.Module):
         dec3 = self.dec3(torch.cat([dec4, conv3], 1))
         dec2 = self.dec2(torch.cat([dec3, conv2], 1))
         dec1 = self.dec1(torch.cat([dec2, conv1], 1))
-        return self.final(dec1)
+        #return self.final(dec1)
 
-        # if self.num_classes > 1:
-        #     x_out = F.log_softmax(self.final(dec1), dim=1)
-        # else:
-        #     x_out = self.final(dec1)
+        if self.num_classes > 1:
+            x_out = F.log_softmax(self.final(dec1), dim=1)
+        else:
+            x_out = self.final(dec1)
 
-        # return x_out
+        return x_out
 
     def set_fine_tune(self, fine_tune_enabled):
         layers = [self.conv1, self.conv2, self.conv3, self.conv4, self.conv5]
@@ -357,12 +355,12 @@ class UNet16(nn.Module):
                                    self.encoder[28],
                                    self.relu)
 
-        self.center = DecoderBlock(512, num_filters * 8 * 2, num_filters * 8)
+        self.center = DecoderBlock_U(512, num_filters * 8 * 2, num_filters * 8)
 
-        self.dec5 = DecoderBlock(512 + num_filters * 8, num_filters * 8 * 2, num_filters * 8)
-        self.dec4 = DecoderBlock(512 + num_filters * 8, num_filters * 8 * 2, num_filters * 8)
-        self.dec3 = DecoderBlock(256 + num_filters * 8, num_filters * 4 * 2, num_filters * 2)
-        self.dec2 = DecoderBlock(128 + num_filters * 2, num_filters * 2 * 2, num_filters)
+        self.dec5 = DecoderBlock_U(512 + num_filters * 8, num_filters * 8 * 2, num_filters * 8)
+        self.dec4 = DecoderBlock_U(512 + num_filters * 8, num_filters * 8 * 2, num_filters * 8)
+        self.dec3 = DecoderBlock_U(256 + num_filters * 8, num_filters * 4 * 2, num_filters * 2)
+        self.dec2 = DecoderBlock_U(128 + num_filters * 2, num_filters * 2 * 2, num_filters)
         self.dec1 = ConvRelu(64 + num_filters, num_filters)
         self.final = nn.Conv2d(num_filters, num_classes, kernel_size=1)
 

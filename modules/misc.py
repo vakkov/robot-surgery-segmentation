@@ -11,6 +11,23 @@ class GlobalAvgPool2d(nn.Module):
         in_size = inputs.size()
         return inputs.view((in_size[0], in_size[1], -1)).mean(dim=2)
 
+class GlobalPooling(torch.nn.Module):
+    def __init__(self, pooling_type='avg', dropout=None):
+        super(GlobalPooling, self).__init__()
+        if pooling_type == 'avg':
+            self.pooling = torch.mean
+        if pooling_type == 'max':
+            self.pooling = torch.max
+        else:
+            assert 'Provided incorrect `pooling_type`'
+        if dropout:
+            self.dropout = torch.nn.Dropout(dropout)
+    def forward(self, x):
+        x = self.pooling(x.view(x.size(0), x.size(1), -1), dim=2)
+        if self.dropout is not None:
+            x = self.dropout(x)
+        return x
+
 class SingleGPU(nn.Module):
     def __init__(self, module):
         super(SingleGPU, self).__init__()
