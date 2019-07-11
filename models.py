@@ -56,6 +56,18 @@ class ConvABN(nn.Module):
         x = self.norm_act(x)
         return x
 
+class ConvABN_GAU(nn.Module):
+
+    def __init__(self, in_ch: int, out_ch: int, kernel_size=3, stride=1, output_padding=0, dilation=1, bias=True, norm_act=InPlaceABNSync):
+        super().__init__()
+        #self.conv = conv3x3(in_, out, bias=False)
+        self.conv = nn.Conv2d(in_ch, out_ch, kernel_size, stride, padding, dilation=dilation, bias=bias)
+        self.norm_act = norm_act(out_ch)
+
+    def forward(self, x):
+        x = self.conv(x)
+        x = self.norm_act(x)
+        return x
 
 class DecoderBlock_U(nn.Module):
     """
@@ -94,7 +106,7 @@ class Upsample(nn.Module):
 
 class DecoderBlock(nn.Module):
     
-    def __init__(self, in_channels, middle_channels, out_channels, norm_act=InPlaceABNSync):
+    def __init__(self, in_channels, middle_channels, out_channels, is_deconv = False, norm_act=InPlaceABNSync):
         
         super().__init__()
         
@@ -107,9 +119,129 @@ class DecoderBlock(nn.Module):
     def forward(self, x):
         return self.block(x)
 
-# class AttenBlock(nn.Module):
+class GAUModule(nn.Module):
+    def __init__(self,in_channels,out_channels, norm_act=InPlaceABNSync):
+        super(GAUModule, self).__init__()
+        
+        self.conv1 = nn.Sequential(
+            nn.AdaptiveAvgPool2d(1),
+            Conv2dBn(out_channels, out_channels, kernel_size=1, stride=1, padding=0),
+            nn.Sigmoid()
+        )
+        
+        #self.conv2 = Conv2dBnRelu(in_channels, out_channels, kernel_size=3, stride=1, padding=1)
+        self.conv2 = ConvABN_GAU(in_channels, out_channels, kernel_size=3, stride=1, padding=1)
+
+    # x: low level feature
+    # y: high level feature
+    def forward(self,x,y):
+        h,w = x.size(2),x.size(3)
+        #y_up = nn.Upsample(size=(h, w), mode='bilinear', align_corners=True)(y)
+        y_up = nn.Upsample(size=(h, w), mode='nearest', align_corners=True)(y)
+        x = self.conv2(x)
+        y = self.conv1(y)
+        z = torch.mul(x, y)
+        
+return y_up + z
     
 
+class RasTerNetV2(nn.Module):
+    """Variation of the UNet architecture with InplaceABN encoder."""
+    def freeze_encoder(self):
+        layers = [self.conv1, self.conv2, self.conv3, self.conv4]
+        for layer in layers:
+            for param in layer.parameters():
+                param.requires_grad = False 
+
+    def __init__(self, num_classes=1, pretrained=False, num_filters=32, is_deconv=True, num_input_channels=3, **kwargs):
+        """
+        Args:
+            num_classes: Number of output classes.
+            num_filters:
+            is_deconv:
+                True: Deconvolution layer is used in the Decoder block.
+                False: Upsampling layer is used in the Decoder block.
+            num_input_channels: Number of channels in the input images.
+        """
+        # super(TernausNetV2, self).__init__()
+        super().__init__()
+
+        if 'norm_act' not in kwargs:
+            norm_act = InPlaceABNSync
+        else:
+            norm_act = kwargs['norm_act']
+
+        self.pool = nn.MaxPool2d(2, 2)
+        self.num_classes = num_classes
+
+        encoder = WiderResNet(structure=[3, 3, 6, 3, 1, 1], classes=1000, norm_act=norm_act)
+       
+        if pretrained:
+            model_path = Path(__file__).resolve().parent / 'data' / 'models'
+            checkpoint = torch.load((model_path.as_posix() + "/" + 'wide_resnet38_ipabn_lr_256.pth.tar'))
+
+            # https://discuss.pytorch.org/t/solved-keyerror-unexpected-key-module-encoder-embedding-weight-in-state-dict/1686/2
+            state_dict = checkpoint['state_dict']
+            new_state_dict = OrderedDict()
+            for k, v in state_dict.items():
+                name = k[7:]  # remove `module.`
+                new_state_dict[name] = v
+            # new_state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}
+            # new_state_dict = {k: v for k, v in state_dict.items() if k in new_state_dict}
+
+            encoder.load_state_dict(new_state_dict)
+            #encoder.fc = nn.Linear(num_input_channels, num_classes)
+            encoder.bn_out = norm_act(num_input_channels)
+            if num_classes != 0:
+                encoder.classifier = nn.Sequential(OrderedDict([
+                    ("avg_pool", GlobalAvgPool2d()),
+                    ("fc", nn.Linear(num_input_channels, num_classes))
+                ]))        
+
+
+        if num_input_channels == 1:
+            self.conv1 = encoder.mod1
+        else:
+            self.conv1 = Sequential(
+                OrderedDict([('conv1', nn.Conv2d(num_input_channels, 64, 3, padding=1, bias=False))]))
+        self.conv2 = encoder.mod2
+        self.conv3 = encoder.mod3
+        self.conv4 = encoder.mod4
+        self.conv5 = encoder.mod5
+
+# maybe add self.fpa = FeaturePyramidAttention(1024, 1024)
+        self.center = DecoderBlock(1024, num_filters * 8, num_filters * 8, is_deconv=is_deconv, norm_act=norm_act)
+
+        self.dec5 = DecoderBlock(1024 + num_filters * 8, num_filters * 8, num_filters * 8, is_deconv=is_deconv, norm_act=norm_act)
+        self.dec4 = DecoderBlock(512 + num_filters * 8, num_filters * 8, num_filters * 8, is_deconv=is_deconv, norm_act=norm_act)
+        self.dec3 = DecoderBlock(256 + num_filters * 8, num_filters * 2, num_filters * 2, is_deconv=is_deconv, norm_act=norm_act)
+        self.dec2 = DecoderBlock(128 + num_filters * 2, num_filters * 2, num_filters, is_deconv=is_deconv, norm_act=norm_act)
+        self.dec1 = ConvABN(64 + num_filters, num_filters, norm_act=norm_act)
+
+        self.final = nn.Conv2d(num_filters, num_classes, kernel_size=1)
+
+    def forward(self, x):
+        conv1 = self.conv1(x)
+        conv2 = self.conv2(self.pool(conv1))
+        conv3 = self.conv3(self.pool(conv2))
+        conv4 = self.conv4(self.pool(conv3))
+        conv5 = self.conv5(self.pool(conv4))
+
+        center = self.center(self.pool(conv5))
+
+        dec5 = self.dec5(torch.cat([center, conv5], 1))
+        dec4 = self.dec4(torch.cat([dec5, conv4], 1))
+        dec3 = self.dec3(torch.cat([dec4, conv3], 1))
+        dec2 = self.dec2(torch.cat([dec3, conv2], 1))
+        dec1 = self.dec1(torch.cat([dec2, conv1], 1))
+        #return self.final(dec1)
+
+        if self.num_classes > 1:
+            x_out = F.log_softmax(self.final(dec1), dim=1)
+        else:
+            x_out = self.final(dec1)
+
+        return x_out
 
 class TernausNetV2(nn.Module):
     """Variation of the UNet architecture with InplaceABN encoder."""
