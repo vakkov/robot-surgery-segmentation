@@ -8,66 +8,12 @@ from collections import OrderedDict
 #from modules.bn import InPlaceABN
 from modules.bn import InPlaceABNSync
 from modules.misc import GlobalAvgPool2d
-
+from modules.conv import ConvRelu, ConvABN, ConvABN_GAU
+#from squeeze_and_excitation import SELayer
 
 from modules.wider_resnet import WiderResNet
 from pathlib import Path
 
-
-# def conv3x3(in_, out):
-#     return nn.Conv2d(in_, out, 3, padding=1)
-def conv3x3(in_, out, bias=True):
-    return nn.Conv2d(in_, out, 3, padding=1, bias=bias)
-
-# class ConvRelu(nn.Module):
-#     def __init__(self, in_: int, out: int):
-#         super(ConvRelu, self).__init__()
-#         self.conv = conv3x3(in_, out)
-#         self.activation = nn.ReLU(inplace=True)
-
-#     def forward(self, x):
-#         x = self.conv(x)
-#         x = self.activation(x)
-#         return x
-
-
-
-class ConvRelu(nn.Module):
-    
-    def __init__(self, in_: int, out: int):
-        super().__init__()
-        self.conv = conv3x3(in_, out)
-        self.activation = nn.ReLU(inplace=True)
-
-    def forward(self, x):
-        x = self.conv(x)
-        x = self.activation(x)
-        return x
-
-class ConvABN(nn.Module):
-
-    def __init__(self, in_: int, out: int, norm_act=InPlaceABNSync):
-        super().__init__()
-        self.conv = conv3x3(in_, out, bias=False)
-        self.norm_act = norm_act(out)
-
-    def forward(self, x):
-        x = self.conv(x)
-        x = self.norm_act(x)
-        return x
-
-class ConvABN_GAU(nn.Module):
-
-    def __init__(self, in_ch: int, out_ch: int, kernel_size=3, stride=1, output_padding=0, dilation=1, bias=True, norm_act=InPlaceABNSync):
-        super().__init__()
-        #self.conv = conv3x3(in_, out, bias=False)
-        self.conv = nn.Conv2d(in_ch, out_ch, kernel_size, stride, padding, dilation=dilation, bias=bias)
-        self.norm_act = norm_act(out_ch)
-
-    def forward(self, x):
-        x = self.conv(x)
-        x = self.norm_act(x)
-        return x
 
 class DecoderBlock_U(nn.Module):
     """
@@ -142,9 +88,58 @@ class GAUModule(nn.Module):
         y = self.conv1(y)
         z = torch.mul(x, y)
         
-return y_up + z
-    
+        return y_up + z
 
+
+
+class FeaturePyramidAttention(nn.Module):
+    """Feature Pyramid Attetion (FPA) block
+       See https://arxiv.org/abs/1805.10180 Figure 3 b
+    """
+
+    def __init__(self, num_in, num_out):
+        super().__init__()
+
+        # no batch norm for tensors of shape NxCx1x1
+        self.top1x1 = nn.Sequential(nn.Conv2d(num_in, num_out, 1, bias=False), nn.ReLU(inplace=True))
+
+        self.mid1x1 = ConvABN_GAU(num_in, num_out, 1, norm_act=InPlaceABNSync)
+
+        self.bot5x5 = ConvABN_GAU(num_in, num_in, 5, stride=2, padding=2, norm_act=InPlaceABNSync)
+        self.bot3x3 = ConvABN_GAU(num_in, num_in, 3, stride=2, padding=1, norm_act=InPlaceABNSync)
+
+        self.lat5x5 = ConvABN_GAU(num_in, num_out, 5, stride=1, padding=2, norm_act=InPlaceABNSync)
+        self.lat3x3 = ConvABN_GAU(num_in, num_out, 3, stride=1, padding=1, norm_act=InPlaceABNSync)
+
+    def forward(self, x):
+        assert x.size()[-1] % 8 == 0 and x.size()[-2] % 8 == 0, "size has to be divisible by 8 for fpa"
+
+        # global pooling top pathway
+        top = self.top1x1(nn.functional.adaptive_avg_pool2d(x, 1))
+        top = nn.functional.interpolate(top, size=x.size()[-2:], mode="bilinear")
+
+        # conv middle pathway
+        mid = self.mid1x1(x)
+
+        # multi-scale bottom and lateral pathways
+        bot0 = self.bot5x5(x)
+        bot1 = self.bot3x3(bot0)
+
+        lat0 = self.lat5x5(bot0)
+        lat1 = self.lat3x3(bot1)
+
+        # upward accumulation pathways
+        up = lat0 + nn.functional.interpolate(lat1, scale_factor=2, mode="bilinear")
+        up = nn.functional.interpolate(up, scale_factor=2, mode="bilinear")
+
+        # print('up')
+        # print(up.size())
+        # print('mid')
+        # print(mid.size())
+        # print('top')
+        # print(top.size())
+        return up * mid + top
+    
 class RasTerNetV2(nn.Module):
     """Variation of the UNet architecture with InplaceABN encoder."""
     def freeze_encoder(self):
@@ -198,7 +193,6 @@ class RasTerNetV2(nn.Module):
                     ("fc", nn.Linear(num_input_channels, num_classes))
                 ]))        
 
-
         if num_input_channels == 1:
             self.conv1 = encoder.mod1
         else:
@@ -209,7 +203,7 @@ class RasTerNetV2(nn.Module):
         self.conv4 = encoder.mod4
         self.conv5 = encoder.mod5
 
-# maybe add self.fpa = FeaturePyramidAttention(1024, 1024)
+        self.fpa = FeaturePyramidAttention(1024, 1024)
         self.center = DecoderBlock(1024, num_filters * 8, num_filters * 8, is_deconv=is_deconv, norm_act=norm_act)
 
         self.dec5 = DecoderBlock(1024 + num_filters * 8, num_filters * 8, num_filters * 8, is_deconv=is_deconv, norm_act=norm_act)
@@ -227,7 +221,9 @@ class RasTerNetV2(nn.Module):
         conv4 = self.conv4(self.pool(conv3))
         conv5 = self.conv5(self.pool(conv4))
 
-        center = self.center(self.pool(conv5))
+        #center = self.center(self.pool(conv5))
+        fpa = self.fpa(conv5)
+        center = self.center(nn.functional.max_pool2d(fpa, kernel_size=2, stride=2))
 
         dec5 = self.dec5(torch.cat([center, conv5], 1))
         dec4 = self.dec4(torch.cat([dec5, conv4], 1))

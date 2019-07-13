@@ -75,3 +75,19 @@ class LossMulti:
                 union = jaccard_output.sum() + jaccard_target.sum()
                 loss -= torch.log((intersection + eps) / (union - intersection + eps)) * self.jaccard_weight
         return loss
+
+# class BCEAndLovaszLoss(_Loss):
+#     def __init__(self, bce_weight=1, lovasz_weight=1, per_image=True, from_logits=True):
+#         super().__init__()
+#         if not from_logits:
+#             raise ValueError("This loss operates only on logits")
+
+#         self.bce = BCELoss(per_image=per_image, from_logits=from_logits)
+#         self.bce_weight = float(bce_weight)
+#         self.lovasz = LovaszHingeLoss(per_image=per_image)
+#         self.lovasz_weight = float(lovasz_weight)
+
+#     def forward(self, y_pred: Tensor, y_true: Tensor):
+#         bce_loss = self.bce(y_pred, y_true)
+#         lov_loss = self.lovasz(y_pred, y_true)
+#         return (bce_loss * self.bce_weight + lov_loss * self.lovasz_weight) / (self.bce_weight + self.lovasz_weight)
