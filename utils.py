@@ -79,7 +79,6 @@ def train(args, model, criterion, train_loader, valid_loader, validation, init_o
 
                 with torch.no_grad():
                     targets = cuda(targets)
-                    torch.autograd.set_detect_anomaly(True)
 
                 outputs = model(inputs)
                 loss = criterion(outputs, targets)

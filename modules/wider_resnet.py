@@ -45,7 +45,8 @@ class WiderResNet(nn.Module):
             for block_id in range(num):
                 blocks.append((
                     "block%d" % (block_id + 1),
-                    IdentityResidualBlock(in_channels, channels[mod_id], norm_act=norm_act, SELayer_type='CSSE')
+                    #IdentityResidualBlock_Spatial(in_channels, channels[mod_id], norm_act=norm_act, SELayer_type='CSSE')
+                    IdentityResidualBlock(in_channels, channels[mod_id], norm_act=norm_act)
                 ))
 
                 # Update channels and p_keep
