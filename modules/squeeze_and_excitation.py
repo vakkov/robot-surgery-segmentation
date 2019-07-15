@@ -139,10 +139,10 @@ class SELayer(nn.Module):
         elif self.se_block_type == se.SELayer.CSSE.value:
             self.SELayer = se.ChannelSpatialSELayer(params['num_filters'])
     """
-    NONE = 'NONE'
-    CSE = 'CSE'
-    SSE = 'SSE'
-    CSSE = 'CSSE'
+    # NONE = 'NONE'
+    # CSE = 'CSE'
+    # SSE = 'SSE'
+    # CSSE = 'CSSE'
    
     def __init__(self, Enum, num_channels, reduction_ratio=2):
         """
@@ -151,11 +151,11 @@ class SELayer(nn.Module):
         :param reduction_ratio: By how much should the num_channels should be reduced
         """
         super(SELayer, self).__init__()
-        if 'CSE' == Enum.value :
+        if 'CSE' == Enum :
             self.SELayer = ChannelSELayer(num_channels, reduction_ratio=2)
-        if 'SSE' == Enum.value :
+        if 'SSE' == Enum :
             self.SELayer = SpatialSELayer(num_channels)
-        if 'CSSE' == Enum.value :
+        if 'CSSE' == Enum :
             self.SELayer = ChannelSpatialSELayer(num_channels, reduction_ratio=2)
 
     def forward(self, input_tensor):

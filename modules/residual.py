@@ -4,6 +4,7 @@ import torch.nn as nn
 
 from .bn import ABN, ACT_LEAKY_RELU, ACT_ELU, ACT_NONE
 import torch.nn.functional as functional
+from .squeeze_and_excitation import SELayer
 
 
 class ResidualBlock(nn.Module):
@@ -107,6 +108,7 @@ class IdentityResidualBlock(nn.Module):
                  dilation=1,
                  groups=1,
                  norm_act=ABN,
+                 SELayer_type = 'None',
                  dropout=None):
         """Configurable identity-mapping residual block
 
@@ -167,7 +169,12 @@ class IdentityResidualBlock(nn.Module):
 
         if need_proj_conv:
             self.proj_conv = nn.Conv2d(in_channels, channels[-1], 1, stride=stride, padding=0, bias=False)
-
+#
+        self.se = 'None'
+        if SELayer_type != 'None' :
+            #self.se = SELayer(SELayer_type, planes, reduction_ratio)
+            self.se = SELayer(SELayer_type, in_channels)      
+#
     def forward(self, x):
         if hasattr(self, "proj_conv"):
             bn1 = self.bn1(x)
@@ -177,6 +184,13 @@ class IdentityResidualBlock(nn.Module):
             bn1 = self.bn1(x)
 
         out = self.convs(bn1)
+#
+        if self.se != 'None' :
+            out = self.self(out)  
+#
         out.add_(shortcut)
-
+        #
+        #out = self.relu(out)
+        out = functional.leaky_relu(out, negative_slope=0.01, inplace=True)
+        #
         return out
