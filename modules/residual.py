@@ -269,7 +269,7 @@ class IdentityResidualBlock_Spatial(nn.Module):
         out = self.convs(bn1)
 #
         if self.se != 'None' :
-            out = self.self(out)  
+            out = self.se(out)  
 #
         out.add_(shortcut)
         #

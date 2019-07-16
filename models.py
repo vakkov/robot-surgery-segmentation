@@ -9,7 +9,7 @@ from collections import OrderedDict
 from modules.bn import InPlaceABNSync
 from modules.misc import GlobalAvgPool2d
 from modules.conv import ConvRelu, ConvABN, ConvABN_GAU
-#from squeeze_and_excitation import SELayer
+from modules.squeeze_and_excitation import SELayer
 
 from modules.wider_resnet import WiderResNet
 from pathlib import Path
@@ -62,16 +62,23 @@ class DecoderBlock(nn.Module):
             ConvABN(middle_channels, out_channels, norm_act=norm_act)
         )
 
+        self.se = 'None'
+        if SELayer_type != 'None' :
+            #self.se = SELayer(SELayer_type, planes, reduction_ratio)
+            self.se = SELayer(SELayer_type, in_channels) 
+
     def forward(self, x):
         return self.block(x)
 
 class GAUModule(nn.Module):
-    def __init__(self,in_channels,out_channels, norm_act=InPlaceABNSync):
+    def __init__(self,in_channels, out_channels, norm_act=InPlaceABNSync):
         super(GAUModule, self).__init__()
         
         self.conv1 = nn.Sequential(
             nn.AdaptiveAvgPool2d(1),
-            Conv2dBn(out_channels, out_channels, kernel_size=1, stride=1, padding=0),
+            #Conv2dBn(out_channels, out_channels, kernel_size=1, stride=1, padding=0),
+            nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=1, padding=0, dilation=dilation, bias=bias),
+            nn.BatchNorm2d(out_channels),
             nn.Sigmoid()
         )
         
@@ -89,8 +96,6 @@ class GAUModule(nn.Module):
         z = torch.mul(x, y)
         
         return y_up + z
-
-
 
 class FeaturePyramidAttention(nn.Module):
     """Feature Pyramid Attetion (FPA) block
