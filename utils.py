@@ -94,7 +94,7 @@ def train(args, model, criterion, train_loader, valid_loader, validation, init_o
                 tq.set_postfix(loss='{:.5f}'.format(mean_loss))
                 if i and i % report_each == 0:
                     write_event(log, step, loss=mean_loss)
-                #torch.cuda.empty_cache()
+                torch.cuda.empty_cache()
             write_event(log, step, loss=mean_loss)
             tq.close()
             save(epoch + 1)

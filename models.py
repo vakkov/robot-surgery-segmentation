@@ -62,13 +62,33 @@ class DecoderBlock(nn.Module):
             ConvABN(middle_channels, out_channels, norm_act=norm_act)
         )
 
-        self.se = 'None'
-        if SELayer_type != 'None' :
-            #self.se = SELayer(SELayer_type, planes, reduction_ratio)
-            self.se = SELayer(SELayer_type, in_channels) 
-
     def forward(self, x):
         return self.block(x)
+
+
+class DecoderBlockv2(nn.Module):
+    
+    def __init__(self, in_channels, middle_channels, out_channels, is_deconv = False, SELayer_type = 'None', norm_act=InPlaceABNSync):
+        
+        super().__init__()
+        
+        self.block = nn.Sequential(
+            Upsample(),
+            ConvABN(in_channels, middle_channels, norm_act=norm_act),
+            ConvABN(middle_channels, out_channels, norm_act=norm_act)
+        )
+
+        self.se = 'None'
+        if SELayer_type != 'None' :
+            self.se = SELayer(SELayer_type, out_channels) 
+
+    def forward(self, x):
+        # return self.block(x)
+        out = self.block(x)
+        if self.se != 'None' :
+            out = self.se(out, pooling = True)
+            #out = functional.leaky_relu(out, negative_slope=0.01, inplace=True)      
+        return out
 
 class GAUModule(nn.Module):
     def __init__(self,in_channels, out_channels, norm_act=InPlaceABNSync):
@@ -209,12 +229,17 @@ class RasTerNetV2(nn.Module):
         self.conv5 = encoder.mod5
 
         self.fpa = FeaturePyramidAttention(1024, 1024)
-        self.center = DecoderBlock(1024, num_filters * 8, num_filters * 8, is_deconv=is_deconv, norm_act=norm_act)
+        # self.center = DecoderBlock(1024, num_filters * 8, num_filters * 8, is_deconv=is_deconv, norm_act=norm_act)
+        # self.dec5 = DecoderBlock(1024 + num_filters * 8, num_filters * 8, num_filters * 8, is_deconv=is_deconv, norm_act=norm_act)
+        # self.dec4 = DecoderBlock(512 + num_filters * 8, num_filters * 8, num_filters * 8, is_deconv=is_deconv, norm_act=norm_act)
+        # self.dec3 = DecoderBlock(256 + num_filters * 8, num_filters * 2, num_filters * 2, is_deconv=is_deconv, norm_act=norm_act)
+        # self.dec2 = DecoderBlock(128 + num_filters * 2, num_filters * 2, num_filters, is_deconv=is_deconv, norm_act=norm_act)
 
-        self.dec5 = DecoderBlock(1024 + num_filters * 8, num_filters * 8, num_filters * 8, is_deconv=is_deconv, norm_act=norm_act)
-        self.dec4 = DecoderBlock(512 + num_filters * 8, num_filters * 8, num_filters * 8, is_deconv=is_deconv, norm_act=norm_act)
-        self.dec3 = DecoderBlock(256 + num_filters * 8, num_filters * 2, num_filters * 2, is_deconv=is_deconv, norm_act=norm_act)
-        self.dec2 = DecoderBlock(128 + num_filters * 2, num_filters * 2, num_filters, is_deconv=is_deconv, norm_act=norm_act)
+        self.center = DecoderBlockv2(1024, num_filters * 8, num_filters * 8, is_deconv=is_deconv, norm_act=norm_act, SELayer_type='CSSE')
+        self.dec5 = DecoderBlockv2(1024 + num_filters * 8, num_filters * 8, num_filters * 8, is_deconv=is_deconv, norm_act=norm_act, SELayer_type='CSSE')
+        self.dec4 = DecoderBlockv2(512 + num_filters * 8, num_filters * 8, num_filters * 8, is_deconv=is_deconv, norm_act=norm_act, SELayer_type='CSSE')
+        self.dec3 = DecoderBlockv2(256 + num_filters * 8, num_filters * 2, num_filters * 2, is_deconv=is_deconv, norm_act=norm_act, SELayer_type='CSSE')
+        self.dec2 = DecoderBlockv2(128 + num_filters * 2, num_filters * 2, num_filters, is_deconv=is_deconv, norm_act=norm_act, SELayer_type='CSSE')
         self.dec1 = ConvABN(64 + num_filters, num_filters, norm_act=norm_act)
 
         self.final = nn.Conv2d(num_filters, num_classes, kernel_size=1)

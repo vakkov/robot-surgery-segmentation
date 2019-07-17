@@ -115,13 +115,13 @@ class ChannelSpatialSELayer(nn.Module):
         self.cSE = ChannelSELayer(num_channels, reduction_ratio)
         self.sSE = SpatialSELayer(num_channels)
 
-    def forward(self, input_tensor):
+    def forward(self, input_tensor, pooling):
         """
 
         :param input_tensor: X, shape = (batch_size, num_channels, H, W)
         :return: output_tensor
         """
-        output_tensor = torch.max(self.cSE(input_tensor), self.sSE(input_tensor))
+        output_tensor = torch.max(self.cSE(input_tensor, pooling), self.sSE(input_tensor))
         return output_tensor
 
 
@@ -158,12 +158,13 @@ class SELayer(nn.Module):
         if 'CSSE' == Enum :
             self.SELayer = ChannelSpatialSELayer(num_channels, reduction_ratio=2)
 
-    def forward(self, input_tensor):
+    def forward(self, input_tensor, pooling):
         """
 
         :param input_tensor: X, shape = (batch_size, num_channels, H, W)
         :return: output_tensor
         """
-        output_tensor = self.SELayer.forword(input_tensor)
+        #output_tensor = self.SELayer.forword(input_tensor)
+        output_tensor = self.SELayer(input_tensor, pooling)
         return output_tensor
     
