@@ -15,6 +15,60 @@ from enum import Enum
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from .conv import ConvABN_GAU
+
+class GAUModule(nn.Module):
+    def __init__(self,in_channels, out_channels, norm_act=InPlaceABNSync):
+        super(GAUModule, self).__init__()
+        
+        self.conv1 = nn.Sequential(
+            nn.AdaptiveAvgPool2d(1),
+            #TODO: REPLACE WITH INPLACE BATCH NORM
+
+            Conv2dBn(out_channels, out_channels, kernel_size=1, stride=1, padding=0),
+            nn.BatchNorm2d(out_channels),
+            #ConvABN_GAU(out_channels, out_channels, kernel_size=1, stride=1, padding=0, activation ="elu")
+            nn.Sigmoid()
+        )
+        
+        #self.conv2 = Conv2dBnRelu(in_channels, out_channels, kernel_size=3, stride=1, padding=1)
+        self.conv2 = ConvABN_GAU(in_channels, out_channels, kernel_size=3, stride=1, padding=1)
+
+    # x: low level feature
+    # y: high level feature
+    def forward(self,x,y):
+        h,w = x.size(2),x.size(3)
+        #y_up = nn.Upsample(size=(h, w), mode='bilinear', align_corners=True)(y)
+        y_up = nn.Upsample(size=(h, w), mode='nearest', align_corners=True)(y)
+        x = self.conv2(x)
+        y = self.conv1(y)
+        z = torch.mul(x, y)
+        
+        return y_up + z
+
+
+class GAUModulev2(nn.Module):
+    def __init__(self,in_channels, out_channels, norm_act=InPlaceABNSync):
+        super(GAUModule, self).__init__()
+        
+        self.conv1 = nn.Sequential(
+            nn.AdaptiveAvgPool2d(1),
+            Conv2d(out_channels, out_channels, kernel_size=1, stride=1, padding=0),
+            nn.BatchNorm2d(out_channels),
+            #ConvABN_GAU(out_channels, out_channels, kernel_size=1, stride=1, padding=0, activation ="elu")
+            nn.Sigmoid()
+        )
+        
+        self.conv2 = ConvABN_GAU(in_channels, in_channels, kernel_size=1, stride=1, padding=0)
+
+    # x: low level feature
+    # y: high level feature
+    def forward(self,x,y):
+        y = self.conv1(x)
+        z = torch.mul(x, y)
+        z = self.conv2(z)
+
+        return z
 
 
 class ChannelSELayer(nn.Module):
@@ -43,14 +97,20 @@ class ChannelSELayer(nn.Module):
         """
 
         :param input_tensor: X, shape = (batch_size, num_channels, H, W)
-        :return: output tensor
+        :return: output tensorx
         """
         batch_size, num_channels, H, W = input_tensor.size()
         # Add pooling layer
         if pooling :
-            input_tensor = self.avg_pool(input_tensor).view(batch_size, num_channels)
+            #input_tensor = self.avg_pool(input_tensor).view(batch_size, num_channels)
+            input_tensor = self.avg_pool(input_tensor)
         # Average along each channel
+        # print('input_tensor')
+        # print(input_tensor.size())
         squeeze_tensor = input_tensor.view(batch_size, num_channels, -1).mean(dim=2)
+
+        # print('squeeze_tensor')
+        # print(squeeze_tensor.size())        
 
         # channel excitation
         fc_out_1 = self.relu(self.fc1(squeeze_tensor))
@@ -58,6 +118,8 @@ class ChannelSELayer(nn.Module):
 
         a, b = squeeze_tensor.size()
         output_tensor = torch.mul(input_tensor, fc_out_2.view(a, b, 1, 1))
+        # print('output_tensor')
+        # print(output_tensor.size())
         return output_tensor
 
 
@@ -95,6 +157,8 @@ class SpatialSELayer(nn.Module):
 
         # spatial excitation
         output_tensor = torch.mul(input_tensor, squeeze_tensor.view(batch_size, 1, a, b))
+        # print('output_tensor')
+        # print(output_tensor.size())
 
         return output_tensor
 
@@ -121,6 +185,8 @@ class ChannelSpatialSELayer(nn.Module):
         :param input_tensor: X, shape = (batch_size, num_channels, H, W)
         :return: output_tensor
         """
+
+        #TODO: SHOULDN'T THIS ADD THE TWO TENSORS?
         output_tensor = torch.max(self.cSE(input_tensor, pooling), self.sSE(input_tensor))
         return output_tensor
 

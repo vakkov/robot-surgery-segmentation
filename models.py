@@ -9,7 +9,7 @@ from collections import OrderedDict
 from modules.bn import InPlaceABNSync
 from modules.misc import GlobalAvgPool2d
 from modules.conv import ConvRelu, ConvABN, ConvABN_GAU
-from modules.squeeze_and_excitation import SELayer
+from modules.squeeze_and_excitation import SELayer, GAUModule
 
 from modules.wider_resnet import WiderResNet
 from pathlib import Path
@@ -66,56 +66,55 @@ class DecoderBlock(nn.Module):
         return self.block(x)
 
 
+# class DecoderBlockv2(nn.Module):
+    
+#     def __init__(self, in_channels, middle_channels, out_channels, is_deconv = False, SELayer_type = 'None', norm_act=InPlaceABNSync):
+        
+#         super().__init__()
+        
+#         self.block = nn.Sequential(
+#             Upsample(),
+#             ConvABN(in_channels, middle_channels, norm_act=norm_act),
+#             ConvABN(middle_channels, out_channels, norm_act=norm_act)
+#         )
+
+#         self.se = 'None'
+#         if SELayer_type != 'None' :
+#             self.se = SELayer(SELayer_type, out_channels) 
+
+#     def forward(self, x):
+#         # return self.block(x)
+#         out = self.block(x)
+#         if self.se != 'None' :
+#             out = self.se(out, pooling = True)
+#             #out = functional.leaky_relu(out, negative_slope=0.01, inplace=True)      
+#         return out
+
 class DecoderBlockv2(nn.Module):
     
     def __init__(self, in_channels, middle_channels, out_channels, is_deconv = False, SELayer_type = 'None', norm_act=InPlaceABNSync):
         
         super().__init__()
-        
+
+        #     self.dec5 = DecoderBlockv2(1024 + num_filters * 8, num_filters * 8, num_filters * 8, is_deconv=is_deconv, norm_act=norm_act, SELayer_type='CSSE')
+        #     self.dec4 = DecoderBlockv2(512 + num_filters * 8, num_filters * 8, num_filters * 8, is_deconv=is_deconv, norm_act=norm_act, SELayer_type='CSSE')
+
+        # dec5 = self.dec5(torch.cat([center, conv5], 1))
+        # dec4 = self.dec4(torch.cat([dec5, conv4], 1))
+
         self.block = nn.Sequential(
-            Upsample(),
-            ConvABN(in_channels, middle_channels, norm_act=norm_act),
-            ConvABN(middle_channels, out_channels, norm_act=norm_act)
+            ConvABN_GAU(in_channels, middle_channels, kernel_size=1, norm_act=norm_act),
+            nn.Upsample(scale_factor=3, mode='nearest')     #deconvolution
+            ConvABN_GAU(middle_channels, out_channels, kernel_size=1, norm_act=norm_act)
         )
 
-        self.se = 'None'
-        if SELayer_type != 'None' :
-            self.se = SELayer(SELayer_type, out_channels) 
+        self.gau = GAUModulev2(in_channels, out_channels) 
 
     def forward(self, x):
         # return self.block(x)
-        out = self.block(x)
-        if self.se != 'None' :
-            out = self.se(out, pooling = True)
-            #out = functional.leaky_relu(out, negative_slope=0.01, inplace=True)      
-        return out
+        out = self.gau(self.block(x).add(x))
 
-class GAUModule(nn.Module):
-    def __init__(self,in_channels, out_channels, norm_act=InPlaceABNSync):
-        super(GAUModule, self).__init__()
-        
-        self.conv1 = nn.Sequential(
-            nn.AdaptiveAvgPool2d(1),
-            #Conv2dBn(out_channels, out_channels, kernel_size=1, stride=1, padding=0),
-            nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=1, padding=0, dilation=dilation, bias=bias),
-            nn.BatchNorm2d(out_channels),
-            nn.Sigmoid()
-        )
-        
-        #self.conv2 = Conv2dBnRelu(in_channels, out_channels, kernel_size=3, stride=1, padding=1)
-        self.conv2 = ConvABN_GAU(in_channels, out_channels, kernel_size=3, stride=1, padding=1)
-
-    # x: low level feature
-    # y: high level feature
-    def forward(self,x,y):
-        h,w = x.size(2),x.size(3)
-        #y_up = nn.Upsample(size=(h, w), mode='bilinear', align_corners=True)(y)
-        y_up = nn.Upsample(size=(h, w), mode='nearest', align_corners=True)(y)
-        x = self.conv2(x)
-        y = self.conv1(y)
-        z = torch.mul(x, y)
-        
-        return y_up + z
+        return out        
 
 class FeaturePyramidAttention(nn.Module):
     """Feature Pyramid Attetion (FPA) block
@@ -192,6 +191,8 @@ class RasTerNetV2(nn.Module):
             norm_act = kwargs['norm_act']
 
         self.pool = nn.MaxPool2d(2, 2)
+        self.avg_pool = nn.AvgPool2d(kernel_size=2, stride=2, padding=0, ceil_mode=False,
+            count_include_pad=False)
         self.num_classes = num_classes
 
         encoder = WiderResNet(structure=[3, 3, 6, 3, 1, 1], classes=1000, norm_act=norm_act)
@@ -252,8 +253,10 @@ class RasTerNetV2(nn.Module):
         conv5 = self.conv5(self.pool(conv4))
 
         #center = self.center(self.pool(conv5))
+        #TODO: POOL THE CONV5 BEFORE FPA??
         fpa = self.fpa(conv5)
-        center = self.center(nn.functional.max_pool2d(fpa, kernel_size=2, stride=2))
+        #center = self.center(nn.functional.max_pool2d(fpa, kernel_size=2, stride=2))
+        center = self.center(self.avg_pool(fpa))
 
         dec5 = self.dec5(torch.cat([center, conv5], 1))
         dec4 = self.dec4(torch.cat([dec5, conv4], 1))
