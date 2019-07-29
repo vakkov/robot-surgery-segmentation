@@ -2,6 +2,8 @@ import argparse
 import json
 from pathlib import Path
 from validation import validation_binary, validation_multi
+from operator import itemgetter
+from loss import class2one_hot
 
 import torch
 from torch import nn
@@ -11,7 +13,10 @@ import torch.backends.cudnn as cudnn
 import torch.backends.cudnn
 
 from models import RasTerNetV2, TernausNetV2, UNet11, LinkNet34, UNet, UNet16, AlbuNet
-from loss import LossBinary, LossMulti
+# from ternaus_v3_oc import TernausNetOC
+from loss import LossBinary, LossMulti, FocalAndJaccardLoss, BCEAndLovaszLoss, LovaszSoftmax, SoftIoULoss, SurfaceLoss, Combined
+from loss2 import BinaryDiceLoss, DiceLoss, Dice_loss, DICELoss
+from modules.wasserstein import WassersteinDice
 from dataset import RoboticsDataset
 import utils
 import sys
@@ -27,7 +32,8 @@ from albumentations import (
     CenterCrop
 )
 
-moddel_list = {'TernausNetV2': TernausNetV2,
+moddel_list = {#'TernausNetOC': TernausNetOC,
+               'TernausNetV2': TernausNetV2,
                'RasTerNetV2': RasTerNetV2,
                'UNet11': UNet11,
                'UNet16': UNet16,
@@ -78,11 +84,30 @@ def main():
     else:
         num_classes = 1
 
+    if args.type == 'binary':
+        loss = LossBinary(jaccard_weight=args.jaccard_weight)
+        #loss = FocalAndJaccardLoss(focal_weight=0.7, jaccard_weight=args.jaccard_weight, per_image=True)
+        #loss = BCEAndLovaszLoss(bce_weight=0.1, lovasz_weight=0.9, per_image=False)
+    else:
+        #loss = LossMulti(num_classes=num_classes, jaccard_weight=args.jaccard_weight)
+        loss = LovaszSoftmax()
+        
+        #loss =  SoftIoULoss(n_classes=num_classes)
+        
+        #loss = SurfaceLoss(kwargs={"idc": [1,7], "num_classes": num_classes}, num_classes=num_classes)
+        # loss = Combined(idc=[0, 1]) 
+        #loss = DiceLoss(n_classes=num_classes)
+        
+        # weights = (torch.ones((num_classes,1))).to(torch.device("cuda"))
+        # loss = DICELoss(weights = weights)
+        #loss = WassersteinDice(n_classes=num_classes)
+
     if args.model == 'UNet':
         model = UNet(num_classes=num_classes)
+    # elif args.model == 'TernausNetOC':
+    #     model = TernausNetOC(num_classes=num_classes, pretrained=True)    
     elif args.model == 'TernausNetV2':
         model = TernausNetV2(num_classes=num_classes, pretrained=True)
-        #model = TernausNetV2(num_classes=num_classes)
     elif args.model == 'RasTerNetV2':
         model = RasTerNetV2(num_classes=num_classes, pretrained=True)
     else:
@@ -99,11 +124,6 @@ def main():
         model = nn.DataParallel(model, device_ids=device_ids).cuda()
     else:
         raise SystemError('GPU device not found')
-
-    if args.type == 'binary':
-        loss = LossBinary(jaccard_weight=args.jaccard_weight)
-    else:
-        loss = LossMulti(num_classes=num_classes, jaccard_weight=args.jaccard_weight)
 
     cudnn.benchmark = True
 
@@ -136,6 +156,13 @@ def main():
             CenterCrop(height=args.val_crop_height, width=args.val_crop_width, p=1),
             Normalize(p=1)
         ], p=p)
+
+    def gt_transform(): 
+        return Compose([
+        lambda img: np.array(img)[np.newaxis, ...],
+        lambda nd: torch.tensor(nd, dtype=torch.int64),
+        partial(class2one_hot, C=num_classes),
+        itemgetter(0)])    
 
     train_loader = make_loader(train_file_names, shuffle=True, transform=train_transform(p=1), problem_type=args.type,
                                batch_size=args.batch_size)

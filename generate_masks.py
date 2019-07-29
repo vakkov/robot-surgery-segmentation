@@ -6,6 +6,7 @@ from prepare_train_val import get_split
 from dataset import RoboticsDataset
 import cv2
 from models import UNet16, LinkNet34, UNet11, UNet, AlbuNet, TernausNetV2
+from .ternaus_v3_oc import TernausNetOC
 import torch
 from pathlib import Path
 from tqdm import tqdm
@@ -55,7 +56,9 @@ def get_model(model_path, model_type='UNet11', problem_type='binary'):
     elif model_type == 'TernausNetV2':
         model = TernausNetV2(num_classes=num_classes)
     elif model_type == 'RasTerNetV2'
-        model = RasTerNetV2(num_classes=num_classes)    
+        model = RasTerNetV2(num_classes=num_classes)
+    elif model_type == 'TernausNetOC'
+        model = TernausNetOC(num_classes=num_classes)     
 
     state = torch.load(str(model_path))
     state = {key.replace('module.', ''): value for key, value in state['model'].items()}
@@ -112,7 +115,7 @@ if __name__ == '__main__':
     arg = parser.add_argument
     arg('--model_path', type=str, default='data/models/UNet', help='path to model folder')
     arg('--model_type', type=str, default='UNet', help='network architecture',
-        choices=['UNet', 'UNet11', 'UNet16', 'LinkNet34', 'AlbuNet', 'TernausNetV2', 'RasTerNetV2'])
+        choices=['UNet', 'UNet11', 'UNet16', 'LinkNet34', 'AlbuNet', 'TernausNetV2', 'RasTerNetV2', 'TernausNetOC'])
     arg('--output_path', type=str, help='path to save images', default='1')
     arg('--batch-size', type=int, default=4)
     arg('--fold', type=int, default=-1, choices=[0, 1, 2, 3, -1], help='-1: all folds')

@@ -18,7 +18,7 @@ import torch.nn.functional as F
 from .conv import ConvABN_GAU
 
 class GAUModule(nn.Module):
-    def __init__(self,in_channels, out_channels, norm_act=InPlaceABNSync):
+    def __init__(self,in_channels, out_channels):
         super(GAUModule, self).__init__()
         
         self.conv1 = nn.Sequential(
@@ -27,7 +27,7 @@ class GAUModule(nn.Module):
 
             Conv2dBn(out_channels, out_channels, kernel_size=1, stride=1, padding=0),
             nn.BatchNorm2d(out_channels),
-            #ConvABN_GAU(out_channels, out_channels, kernel_size=1, stride=1, padding=0, activation ="elu")
+            #ConvABN_GAU(out_channels, out_channels, kernel_size=1, stride=1, padding=0, activation ="relu")
             nn.Sigmoid()
         )
         
@@ -48,12 +48,12 @@ class GAUModule(nn.Module):
 
 
 class GAUModulev2(nn.Module):
-    def __init__(self,in_channels, out_channels, norm_act=InPlaceABNSync):
-        super(GAUModule, self).__init__()
+    def __init__(self,in_channels, out_channels):
+        super(GAUModulev2, self).__init__()
         
         self.conv1 = nn.Sequential(
             nn.AdaptiveAvgPool2d(1),
-            Conv2d(out_channels, out_channels, kernel_size=1, stride=1, padding=0),
+            nn.Conv2d(out_channels, out_channels, kernel_size=1, stride=1, padding=0),
             nn.BatchNorm2d(out_channels),
             #ConvABN_GAU(out_channels, out_channels, kernel_size=1, stride=1, padding=0, activation ="elu")
             nn.Sigmoid()
@@ -187,7 +187,8 @@ class ChannelSpatialSELayer(nn.Module):
         """
 
         #TODO: SHOULDN'T THIS ADD THE TWO TENSORS?
-        output_tensor = torch.max(self.cSE(input_tensor, pooling), self.sSE(input_tensor))
+        #output_tensor = torch.max(self.cSE(input_tensor, pooling), self.sSE(input_tensor))
+        output_tensor = self.cSE(input_tensor, pooling) + self.sSE(input_tensor)
         return output_tensor
 
 
@@ -230,7 +231,7 @@ class SELayer(nn.Module):
         :param input_tensor: X, shape = (batch_size, num_channels, H, W)
         :return: output_tensor
         """
-        #output_tensor = self.SELayer.forword(input_tensor)
+        #output_tensor = self.SELayer.forward(input_tensor)
         output_tensor = self.SELayer(input_tensor, pooling)
         return output_tensor
     

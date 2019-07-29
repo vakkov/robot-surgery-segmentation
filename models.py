@@ -9,10 +9,11 @@ from collections import OrderedDict
 from modules.bn import InPlaceABNSync
 from modules.misc import GlobalAvgPool2d
 from modules.conv import ConvRelu, ConvABN, ConvABN_GAU
-from modules.squeeze_and_excitation import SELayer, GAUModule
+from modules.squeeze_and_excitation import SELayer, GAUModulev2
 
 from modules.wider_resnet import WiderResNet
 from pathlib import Path
+#from torchsummary import summary
 
 
 class DecoderBlock_U(nn.Module):
@@ -42,7 +43,7 @@ class DecoderBlock_U(nn.Module):
     def forward(self, x):
         return self.block(x)
 
-class Upsample(nn.Module):
+class Upsample_nearest(nn.Module):
     
     def __init__(self):
         super().__init__()
@@ -52,12 +53,12 @@ class Upsample(nn.Module):
 
 class DecoderBlock(nn.Module):
     
-    def __init__(self, in_channels, middle_channels, out_channels, is_deconv = False, norm_act=InPlaceABNSync):
+    def __init__(self, in_channels, middle_channels, out_channels, norm_act=InPlaceABNSync):
         
         super().__init__()
         
         self.block = nn.Sequential(
-            Upsample(),
+            Upsample_nearest(),
             ConvABN(in_channels, middle_channels, norm_act=norm_act),
             ConvABN(middle_channels, out_channels, norm_act=norm_act)
         )
@@ -66,55 +67,46 @@ class DecoderBlock(nn.Module):
         return self.block(x)
 
 
-# class DecoderBlockv2(nn.Module):
-    
-#     def __init__(self, in_channels, middle_channels, out_channels, is_deconv = False, SELayer_type = 'None', norm_act=InPlaceABNSync):
-        
-#         super().__init__()
-        
-#         self.block = nn.Sequential(
-#             Upsample(),
-#             ConvABN(in_channels, middle_channels, norm_act=norm_act),
-#             ConvABN(middle_channels, out_channels, norm_act=norm_act)
-#         )
-
-#         self.se = 'None'
-#         if SELayer_type != 'None' :
-#             self.se = SELayer(SELayer_type, out_channels) 
-
-#     def forward(self, x):
-#         # return self.block(x)
-#         out = self.block(x)
-#         if self.se != 'None' :
-#             out = self.se(out, pooling = True)
-#             #out = functional.leaky_relu(out, negative_slope=0.01, inplace=True)      
-#         return out
-
 class DecoderBlockv2(nn.Module):
     
     def __init__(self, in_channels, middle_channels, out_channels, is_deconv = False, SELayer_type = 'None', norm_act=InPlaceABNSync):
         
         super().__init__()
-
-        #     self.dec5 = DecoderBlockv2(1024 + num_filters * 8, num_filters * 8, num_filters * 8, is_deconv=is_deconv, norm_act=norm_act, SELayer_type='CSSE')
-        #     self.dec4 = DecoderBlockv2(512 + num_filters * 8, num_filters * 8, num_filters * 8, is_deconv=is_deconv, norm_act=norm_act, SELayer_type='CSSE')
-
-        # dec5 = self.dec5(torch.cat([center, conv5], 1))
-        # dec4 = self.dec4(torch.cat([dec5, conv4], 1))
-
+        
         self.block = nn.Sequential(
-            ConvABN_GAU(in_channels, middle_channels, kernel_size=1, norm_act=norm_act),
-            nn.Upsample(scale_factor=3, mode='nearest')     #deconvolution
-            ConvABN_GAU(middle_channels, out_channels, kernel_size=1, norm_act=norm_act)
+            Upsample_nearest(),
+            ConvABN(in_channels, middle_channels, norm_act=norm_act),
+            ConvABN(middle_channels, out_channels, norm_act=norm_act)
         )
 
-        self.gau = GAUModulev2(in_channels, out_channels) 
+        self.se = 'None'
+        if SELayer_type != 'None' :
+            self.se = SELayer(SELayer_type, out_channels) 
 
     def forward(self, x):
         # return self.block(x)
-        out = self.gau(self.block(x).add(x))
+        out = self.block(x)
+        if self.se != 'None' :
+            out = self.se(out, pooling = True)
+            #out = functional.leaky_relu(out, negative_slope=0.01, inplace=True)      
+        return out
 
-        return out        
+# class DecoderBlockV3SE(nn.Module):
+#     def __init__(self, in_channels, middle_channels, out_channels, norm_act=ABN, activation=ACT_RELU, batch_norm=True):
+#         super(DecoderBlockV3SE, self).__init__()
+#         self.in_channels = in_channels
+#         self.scse = ChannelSpatialGate2d(out_channels)
+
+#         self.block = nn.Sequential(
+#             ConvABN(in_channels, middle_channels, norm_act=abn_block, activation=activation),
+#             ConvABN(middle_channels, out_channels, norm_act=abn_block, activation=activation)
+#             )
+
+
+#     def forward(self, x):
+#         x = self.block(x)
+#         x = self.scse(x)
+#         return x
 
 class FeaturePyramidAttention(nn.Module):
     """Feature Pyramid Attetion (FPA) block
@@ -172,7 +164,7 @@ class RasTerNetV2(nn.Module):
             for param in layer.parameters():
                 param.requires_grad = False 
 
-    def __init__(self, num_classes=1, pretrained=False, num_filters=32, is_deconv=True, num_input_channels=3, **kwargs):
+    def __init__(self, num_classes=1, pretrained=False, num_filters=32, is_deconv=True, num_input_channels=3, Lovasz_softmax = False, **kwargs):
         """
         Args:
             num_classes: Number of output classes.
@@ -207,11 +199,8 @@ class RasTerNetV2(nn.Module):
             for k, v in state_dict.items():
                 name = k[7:]  # remove `module.`
                 new_state_dict[name] = v
-            # new_state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}
-            # new_state_dict = {k: v for k, v in state_dict.items() if k in new_state_dict}
 
             encoder.load_state_dict(new_state_dict)
-            #encoder.fc = nn.Linear(num_input_channels, num_classes)
             encoder.bn_out = norm_act(num_input_channels)
             if num_classes != 0:
                 encoder.classifier = nn.Sequential(OrderedDict([
@@ -224,17 +213,13 @@ class RasTerNetV2(nn.Module):
         else:
             self.conv1 = Sequential(
                 OrderedDict([('conv1', nn.Conv2d(num_input_channels, 64, 3, padding=1, bias=False))]))
+                #OrderedDict([('conv1', ConvABN_GAU(num_input_channels, 64, kernel_size=3, padding=1, bias=False))]))
         self.conv2 = encoder.mod2
         self.conv3 = encoder.mod3
         self.conv4 = encoder.mod4
         self.conv5 = encoder.mod5
 
         self.fpa = FeaturePyramidAttention(1024, 1024)
-        # self.center = DecoderBlock(1024, num_filters * 8, num_filters * 8, is_deconv=is_deconv, norm_act=norm_act)
-        # self.dec5 = DecoderBlock(1024 + num_filters * 8, num_filters * 8, num_filters * 8, is_deconv=is_deconv, norm_act=norm_act)
-        # self.dec4 = DecoderBlock(512 + num_filters * 8, num_filters * 8, num_filters * 8, is_deconv=is_deconv, norm_act=norm_act)
-        # self.dec3 = DecoderBlock(256 + num_filters * 8, num_filters * 2, num_filters * 2, is_deconv=is_deconv, norm_act=norm_act)
-        # self.dec2 = DecoderBlock(128 + num_filters * 2, num_filters * 2, num_filters, is_deconv=is_deconv, norm_act=norm_act)
 
         self.center = DecoderBlockv2(1024, num_filters * 8, num_filters * 8, is_deconv=is_deconv, norm_act=norm_act, SELayer_type='CSSE')
         self.dec5 = DecoderBlockv2(1024 + num_filters * 8, num_filters * 8, num_filters * 8, is_deconv=is_deconv, norm_act=norm_act, SELayer_type='CSSE')
@@ -264,13 +249,17 @@ class RasTerNetV2(nn.Module):
         dec2 = self.dec2(torch.cat([dec3, conv2], 1))
         dec1 = self.dec1(torch.cat([dec2, conv1], 1))
         #return self.final(dec1)
-
         if self.num_classes > 1:
-            x_out = F.log_softmax(self.final(dec1), dim=1)
+            #x_out = F.log_softmax(self.final(dec1), dim=1)
+            x_out = F.softmax(self.final(dec1), dim=1)
         else:
             x_out = self.final(dec1)
 
-        return x_out
+        return x_out        
+
+# device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# model = RasTerNetV2().to(device)
+# summary(model, (3, 1024, 1280))        
 
 class TernausNetV2(nn.Module):
     """Variation of the UNet architecture with InplaceABN encoder."""
@@ -460,7 +449,10 @@ class UNet11(nn.Module):
         dec1 = self.dec1(torch.cat([dec2, conv1], 1))
 
         if self.num_classes > 1:
-            x_out = F.log_softmax(self.final(dec1), dim=1)
+            #x_out = F.log_softmax(self.final(dec1), dim=1)
+            #x_out = F.softmax(self.final(dec1), dim=1)
+            x_out = self.final(dec1)
+
         else:
             x_out = self.final(dec1)
 

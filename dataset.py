@@ -4,6 +4,7 @@ import cv2
 from torch.utils.data import Dataset
 import prepare_data
 from albumentations.pytorch.functional import img_to_tensor
+from loss import class2one_hot, one_hot2dist
 
 
 class RoboticsDataset(Dataset):
@@ -30,6 +31,15 @@ class RoboticsDataset(Dataset):
             if self.problem_type == 'binary':
                 return img_to_tensor(image), torch.from_numpy(np.expand_dims(mask, 0)).float()
             else:
+                if self.problem_type == 'parts':
+                    num_classes = 4
+                elif self.problem_type == 'instruments':
+                     num_classes = 8
+                # mask_tensor = torch.tensor(mask, dtype=torch.int64)
+                # mask_onehot = class2one_hot(mask_tensor, num_classes)[0]
+                # mask_distmap = one_hot2dist(mask_onehot.cpu().numpy())
+                # mask_distmap = torch.from_numpy(mask_distmap).float()
+                # return img_to_tensor(image), mask_tensor.long(), mask_onehot, mask_distmap
                 return img_to_tensor(image), torch.from_numpy(mask).long()
         else:
             return img_to_tensor(image), str(img_file_name)

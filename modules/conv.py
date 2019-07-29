@@ -3,7 +3,7 @@ import torch
 from torchvision import models
 import torchvision
 from torch.nn import functional as F
-from modules.bn import InPlaceABNSync
+from modules.bn import InPlaceABNSync, ACT_LEAKY_RELU
 
 
 # def conv3x3(in_, out):
@@ -41,6 +41,7 @@ class ConvABN(nn.Module):
     def __init__(self, in_: int, out: int, norm_act=InPlaceABNSync):
         super().__init__()
         self.conv = conv3x3(in_, out, bias=False)
+        #self.activation = activation
         self.norm_act = norm_act(out)
 
     def forward(self, x):
@@ -50,11 +51,11 @@ class ConvABN(nn.Module):
 
 class ConvABN_GAU(nn.Module):
 
-    def __init__(self, in_ch: int, out_ch: int, kernel_size=3, stride=1, padding=0, bias=False, norm_act=InPlaceABNSync, activation="leaky_relu"):
+    #def __init__(self, in_ch: int, out_ch: int, kernel_size=3, stride=1, padding=0, bias=False, norm_act=InPlaceABNSync, activation="leaky_relu"):
+    def __init__(self, in_ch: int, out_ch: int, kernel_size=3, stride=1, padding=0, bias=False, norm_act=InPlaceABNSync):    
         super().__init__()
-        #self.conv = conv3x3(in_, out, bias=False)
         self.conv = nn.Conv2d(in_ch, out_ch, kernel_size, stride, padding, bias=False)
-        self.norm_act = norm_act(out_ch, activation)
+        self.norm_act = norm_act(out_ch)
 
     def forward(self, x):
         x = self.conv(x)

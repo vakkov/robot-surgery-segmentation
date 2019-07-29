@@ -43,10 +43,12 @@ def validation_multi(model: nn.Module, criterion, valid_loader, num_classes):
         confusion_matrix = np.zeros(
             (num_classes, num_classes), dtype=np.uint32)
         for inputs, targets in valid_loader:
+        #for inputs, targets, mask_onehot, mask_distmap in valid_loader:
             inputs = utils.cuda(inputs)
             targets = utils.cuda(targets)
             outputs = model(inputs)
             loss = criterion(outputs, targets)
+            #loss = criterion(outputs, targets, mask_onehot, mask_distmap)
             losses.append(loss.item())
             output_classes = outputs.data.cpu().numpy().argmax(axis=1)
             target_classes = targets.data.cpu().numpy()
@@ -68,7 +70,7 @@ def validation_multi(model: nn.Module, criterion, valid_loader, num_classes):
             'Valid loss: {:.4f}, average IoU: {:.4f}, average Dice: {:.4f}'.format(valid_loss,
                                                                                    average_iou,
                                                                                    average_dices))
-        metrics = {'valid_loss': valid_loss, 'iou': average_iou}
+        metrics = {'valid_loss': valid_loss, 'iou': average_iou, 'avg_dice': average_dices}
         metrics.update(ious)
         metrics.update(dices)
         return metrics

@@ -65,7 +65,7 @@ def train(args, model, criterion, train_loader, valid_loader, validation, init_o
     log = root.joinpath('train_{fold}.log'.format(fold=fold)).open('at', encoding='utf8')
     valid_losses = []
     for epoch in range(epoch, n_epochs + 1):
-        #torch.cuda.empty_cache()
+        torch.cuda.empty_cache()
         model.train()
         random.seed()
         tq = tqdm.tqdm(total=(len(train_loader) * args.batch_size))
@@ -75,6 +75,7 @@ def train(args, model, criterion, train_loader, valid_loader, validation, init_o
         try:
             mean_loss = 0
             for i, (inputs, targets) in enumerate(tl):
+            #for i, (inputs, targets, mask_onehot, mask_distmap) in enumerate(tl):
                 inputs = cuda(inputs)
 
                 with torch.no_grad():
@@ -82,13 +83,17 @@ def train(args, model, criterion, train_loader, valid_loader, validation, init_o
 
                 outputs = model(inputs)
                 loss = criterion(outputs, targets)
+                #loss = criterion(outputs, targets, mask_onehot, mask_distmap)
                 optimizer.zero_grad()
                 batch_size = inputs.size(0)
                 loss.backward()
+                #loss.mean().backward()
                 optimizer.step()
                 step += 1
                 #step = step + 1
                 tq.update(batch_size)
+                #print(loss.mean())
+                #losses.append(loss.mean().item())
                 losses.append(loss.item())
                 mean_loss = np.mean(losses[-report_each:])
                 tq.set_postfix(loss='{:.5f}'.format(mean_loss))

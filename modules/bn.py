@@ -8,6 +8,10 @@ except ImportError:
     from Queue import Queue
 
 from .functions import *
+ACT_RELU = "relu"
+ACT_LEAKY_RELU = "leaky_relu"
+ACT_ELU = "elu"
+ACT_NONE = "identity"
 
 
 class ABN(nn.Module):
