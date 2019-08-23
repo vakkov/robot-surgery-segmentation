@@ -77,6 +77,8 @@ def train(args, model, criterion, train_loader, valid_loader, validation, init_o
             for i, (inputs, targets) in enumerate(tl):
             #for i, (inputs, targets, mask_onehot, mask_distmap) in enumerate(tl):
                 inputs = cuda(inputs)
+                # mask_onehot = cuda(mask_onehot)
+                # mask_distmap = cuda(mask_distmap)
 
                 with torch.no_grad():
                     targets = cuda(targets)

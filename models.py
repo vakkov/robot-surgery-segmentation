@@ -12,6 +12,7 @@ from modules.conv import ConvRelu, ConvABN, ConvABN_GAU
 from modules.squeeze_and_excitation import SELayer, GAUModulev2
 
 from modules.wider_resnet import WiderResNet
+from modules.densenet import DenseNet
 from pathlib import Path
 #from torchsummary import summary
 
@@ -67,46 +68,71 @@ class DecoderBlock(nn.Module):
         return self.block(x)
 
 
+# class DecoderBlockv2(nn.Module):
+    
+#     def __init__(self, in_channels, middle_channels, out_channels, is_deconv = False, SELayer_type = 'None', norm_act=InPlaceABNSync):
+        
+#         super().__init__()
+        
+#         self.block = nn.Sequential(
+#             Upsample_nearest(),
+#             ConvABN(in_channels, middle_channels, norm_act=norm_act),
+#             ConvABN(middle_channels, out_channels, norm_act=norm_act)
+#         )
+
+#         self.se = 'None'
+#         if SELayer_type != 'None' :
+#             self.se = SELayer(SELayer_type, out_channels) 
+
+#     def forward(self, x):
+#         # return self.block(x)
+#         out = self.block(x)
+#         if self.se != 'None' :
+#             out = self.se(out, pooling = True)
+#             #out = functional.leaky_relu(out, negative_slope=0.01, inplace=True)      
+#         return out
+
+
 class DecoderBlockv2(nn.Module):
     
-    def __init__(self, in_channels, middle_channels, out_channels, is_deconv = False, SELayer_type = 'None', norm_act=InPlaceABNSync):
+    def __init__(self, in_channels, middle_channels, out_channels, is_deconv = False, norm_act=InPlaceABNSync):
         
         super().__init__()
         
         self.block = nn.Sequential(
-            Upsample_nearest(),
+            #Upsample_nearest(),
             ConvABN(in_channels, middle_channels, norm_act=norm_act),
             ConvABN(middle_channels, out_channels, norm_act=norm_act)
         )
 
+    def forward(self, x, e=None):
+        #x = F.upsample(x, scale_factor=2, mode='nearest')
+        x = nn.functional.interpolate(x, scale_factor=2, mode='nearest')
+        x = self.block(x)
+        if e is not None:
+            x = torch.cat([x, e], 1)
+        return x
+
+
+class DecoderBlockv3(DecoderBlockv2):
+    
+    def __init__(self, in_channels, middle_channels, out_channels, is_deconv = False, SELayer_type = 'None', norm_act=InPlaceABNSync):
+        
+        super(DecoderBlockv3, self).__init__(in_channels, middle_channels, out_channels, SELayer_type , norm_act)
+        
         self.se = 'None'
         if SELayer_type != 'None' :
             self.se = SELayer(SELayer_type, out_channels) 
 
-    def forward(self, x):
+    def forward(self, x, e=None):
         # return self.block(x)
-        out = self.block(x)
+        out = super().forward(x, e)
         if self.se != 'None' :
             out = self.se(out, pooling = True)
             #out = functional.leaky_relu(out, negative_slope=0.01, inplace=True)      
         return out
 
-# class DecoderBlockV3SE(nn.Module):
-#     def __init__(self, in_channels, middle_channels, out_channels, norm_act=ABN, activation=ACT_RELU, batch_norm=True):
-#         super(DecoderBlockV3SE, self).__init__()
-#         self.in_channels = in_channels
-#         self.scse = ChannelSpatialGate2d(out_channels)
 
-#         self.block = nn.Sequential(
-#             ConvABN(in_channels, middle_channels, norm_act=abn_block, activation=activation),
-#             ConvABN(middle_channels, out_channels, norm_act=abn_block, activation=activation)
-#             )
-
-
-#     def forward(self, x):
-#         x = self.block(x)
-#         x = self.scse(x)
-#         return x
 
 class FeaturePyramidAttention(nn.Module):
     """Feature Pyramid Attetion (FPA) block
@@ -221,11 +247,13 @@ class RasTerNetV2(nn.Module):
 
         self.fpa = FeaturePyramidAttention(1024, 1024)
 
-        self.center = DecoderBlockv2(1024, num_filters * 8, num_filters * 8, is_deconv=is_deconv, norm_act=norm_act, SELayer_type='CSSE')
-        self.dec5 = DecoderBlockv2(1024 + num_filters * 8, num_filters * 8, num_filters * 8, is_deconv=is_deconv, norm_act=norm_act, SELayer_type='CSSE')
-        self.dec4 = DecoderBlockv2(512 + num_filters * 8, num_filters * 8, num_filters * 8, is_deconv=is_deconv, norm_act=norm_act, SELayer_type='CSSE')
-        self.dec3 = DecoderBlockv2(256 + num_filters * 8, num_filters * 2, num_filters * 2, is_deconv=is_deconv, norm_act=norm_act, SELayer_type='CSSE')
-        self.dec2 = DecoderBlockv2(128 + num_filters * 2, num_filters * 2, num_filters, is_deconv=is_deconv, norm_act=norm_act, SELayer_type='CSSE')
+        #center is the bottleneck block; according to 1803.02579 we should not have squeeze and excitation there.
+        self.center = DecoderBlockv2(1024, num_filters * 8, num_filters * 8, norm_act=norm_act)
+
+        self.dec5 = DecoderBlockv3(1024 + num_filters * 8, num_filters * 8, num_filters * 8, is_deconv=is_deconv, norm_act=norm_act, SELayer_type='CSSE')
+        self.dec4 = DecoderBlockv3(512 + num_filters * 8, num_filters * 8, num_filters * 8, is_deconv=is_deconv, norm_act=norm_act, SELayer_type='CSSE')
+        self.dec3 = DecoderBlockv3(256 + num_filters * 8, num_filters * 2, num_filters * 2, is_deconv=is_deconv, norm_act=norm_act, SELayer_type='CSSE')
+        self.dec2 = DecoderBlockv3(128 + num_filters * 2, num_filters * 2, num_filters, is_deconv=is_deconv, norm_act=norm_act, SELayer_type='CSSE')
         self.dec1 = ConvABN(64 + num_filters, num_filters, norm_act=norm_act)
 
         self.final = nn.Conv2d(num_filters, num_classes, kernel_size=1)
@@ -242,16 +270,30 @@ class RasTerNetV2(nn.Module):
         fpa = self.fpa(conv5)
         #center = self.center(nn.functional.max_pool2d(fpa, kernel_size=2, stride=2))
         center = self.center(self.avg_pool(fpa))
+        # print("center ", center.shape)
+        # print("conv5 ", conv5.shape)
+        # print("conv4", conv4.shape)
+        # print("conv3", conv3.shape)
+        # print("conv2", conv2.shape)
+        # print("conv1", conv1.shape)
 
         dec5 = self.dec5(torch.cat([center, conv5], 1))
         dec4 = self.dec4(torch.cat([dec5, conv4], 1))
         dec3 = self.dec3(torch.cat([dec4, conv3], 1))
         dec2 = self.dec2(torch.cat([dec3, conv2], 1))
         dec1 = self.dec1(torch.cat([dec2, conv1], 1))
+
+        # dec5 = self.dec5(center, conv5)
+        # dec4 = self.dec4(dec5, conv4)
+        # dec3 = self.dec3(dec4, conv3)
+        # dec2 = self.dec2(dec3, conv2)
+        # dec1 = self.dec1(torch.cat([dec2, conv1], 1)) 
+
         #return self.final(dec1)
         if self.num_classes > 1:
             #x_out = F.log_softmax(self.final(dec1), dim=1)
-            x_out = F.softmax(self.final(dec1), dim=1)
+            #x_out = F.softmax(self.final(dec1), dim=1)
+            x_out = self.final(dec1)
         else:
             x_out = self.final(dec1)
 
@@ -259,7 +301,11 @@ class RasTerNetV2(nn.Module):
 
 # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # model = RasTerNetV2().to(device)
-# summary(model, (3, 1024, 1280))        
+# # summary(model, (3, 1024, 1280))  
+# for name, param in model.named_parameters():
+#     if param.requires_grad:
+#         #print (name, param.data)
+#         print(name)      
 
 class TernausNetV2(nn.Module):
     """Variation of the UNet architecture with InplaceABN encoder."""
@@ -449,9 +495,9 @@ class UNet11(nn.Module):
         dec1 = self.dec1(torch.cat([dec2, conv1], 1))
 
         if self.num_classes > 1:
-            #x_out = F.log_softmax(self.final(dec1), dim=1)
+            x_out = F.log_softmax(self.final(dec1), dim=1)
             #x_out = F.softmax(self.final(dec1), dim=1)
-            x_out = self.final(dec1)
+            #x_out = self.final(dec1)
 
         else:
             x_out = self.final(dec1)

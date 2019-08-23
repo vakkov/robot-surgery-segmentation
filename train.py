@@ -12,9 +12,9 @@ from torch.utils.data import DataLoader
 import torch.backends.cudnn as cudnn
 import torch.backends.cudnn
 
-from models import RasTerNetV2, TernausNetV2, UNet11, LinkNet34, UNet, UNet16, AlbuNet
+from models import RasTerNetV2, TernausNetV2, UNet11, LinkNet34, UNet, UNet16, AlbuNet #DeeperNetV3
 # from ternaus_v3_oc import TernausNetOC
-from loss import LossBinary, LossMulti, FocalAndJaccardLoss, BCEAndLovaszLoss, LovaszSoftmax, SoftIoULoss, SurfaceLoss, Combined
+from loss import LossBinary, LossMulti, FocalAndJaccardLoss, BCEAndLovaszLoss, LovaszSoftmax, SoftIoULoss, SurfaceLoss, Combined, Combined_Lovasz
 from loss2 import BinaryDiceLoss, DiceLoss, Dice_loss, DICELoss
 from modules.wasserstein import WassersteinDice
 from dataset import RoboticsDataset
@@ -33,6 +33,7 @@ from albumentations import (
 )
 
 moddel_list = {#'TernausNetOC': TernausNetOC,
+               #'DeeperNetV3': DeeperNetV3,
                'TernausNetV2': TernausNetV2,
                'RasTerNetV2': RasTerNetV2,
                'UNet11': UNet11,
@@ -85,9 +86,9 @@ def main():
         num_classes = 1
 
     if args.type == 'binary':
-        loss = LossBinary(jaccard_weight=args.jaccard_weight)
+        #loss = LossBinary(jaccard_weight=args.jaccard_weight)
         #loss = FocalAndJaccardLoss(focal_weight=0.7, jaccard_weight=args.jaccard_weight, per_image=True)
-        #loss = BCEAndLovaszLoss(bce_weight=0.1, lovasz_weight=0.9, per_image=False)
+        loss = BCEAndLovaszLoss(bce_weight=0.1, lovasz_weight=0.9, per_image=False)
     else:
         #loss = LossMulti(num_classes=num_classes, jaccard_weight=args.jaccard_weight)
         loss = LovaszSoftmax()
@@ -95,7 +96,8 @@ def main():
         #loss =  SoftIoULoss(n_classes=num_classes)
         
         #loss = SurfaceLoss(kwargs={"idc": [1,7], "num_classes": num_classes}, num_classes=num_classes)
-        # loss = Combined(idc=[0, 1]) 
+        #loss = Combined(idc=[0, 1]) 
+        #loss = Combined_Lovasz(idc=[0, 1])
         #loss = DiceLoss(n_classes=num_classes)
         
         # weights = (torch.ones((num_classes,1))).to(torch.device("cuda"))
@@ -110,6 +112,8 @@ def main():
         model = TernausNetV2(num_classes=num_classes, pretrained=True)
     elif args.model == 'RasTerNetV2':
         model = RasTerNetV2(num_classes=num_classes, pretrained=True)
+    # elif args.model == 'DeeperNetV3':
+    #     model = DeeperNetV3(num_classes=num_classes, pretrained=True)
     else:
         model_name = moddel_list[args.model]
         model = model_name(num_classes=num_classes, pretrained=True)

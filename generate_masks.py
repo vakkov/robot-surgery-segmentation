@@ -5,7 +5,7 @@ import argparse
 from prepare_train_val import get_split
 from dataset import RoboticsDataset
 import cv2
-from models import UNet16, LinkNet34, UNet11, UNet, AlbuNet, TernausNetV2
+from models import UNet16, LinkNet34, UNet11, UNet, AlbuNet, TernausNetV2 #DeeperNetV3
 from .ternaus_v3_oc import TernausNetOC
 import torch
 from pathlib import Path
@@ -58,7 +58,9 @@ def get_model(model_path, model_type='UNet11', problem_type='binary'):
     elif model_type == 'RasTerNetV2'
         model = RasTerNetV2(num_classes=num_classes)
     elif model_type == 'TernausNetOC'
-        model = TernausNetOC(num_classes=num_classes)     
+        model = TernausNetOC(num_classes=num_classes)
+    # elif model_type == 'DeeperNetV3'
+    #     model = DeeperNetV3(num_classes=num_classes)     
 
     state = torch.load(str(model_path))
     state = {key.replace('module.', ''): value for key, value in state['model'].items()}

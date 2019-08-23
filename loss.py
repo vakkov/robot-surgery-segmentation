@@ -72,6 +72,7 @@ class LossMulti:
         self.num_classes = num_classes
 
     def __call__(self, outputs, targets):
+        #outputs = F.log_softmax(outputs, dim=1)
         loss = (1 - self.jaccard_weight) * self.nll_loss(outputs, targets)
 
         if self.jaccard_weight:
@@ -386,10 +387,6 @@ def one_hot2dist(seg: np.ndarray) -> np.ndarray:
 
 
 
-#def one_hot2dist(seg: np.ndarray) -> np.ndarray:
-    #print(seg)
-    #print(seg.shape)
-    #assert one_hot(torch.Tensor(seg), axis=0)
 # def one_hot2dist(seg: Tensor) -> Tensor:    
 #     C = len(seg)
 #     print("seg ", seg)
@@ -432,6 +429,26 @@ def one_hot2dist(seg: np.ndarray) -> np.ndarray:
 
 #         return loss
 
+# class DiceLoss():
+#     def __init__(self, **kwargs):
+#         # Self.idc is used to filter out some classes of the target mask. Use fancy indexing
+#         self.idc: List[int] = kwargs["idc"]
+#         print(f"Initialized {self.__class__.__name__} with {kwargs}")
+
+#     def __call__(self, probs: Tensor, target: Tensor, _: Tensor) -> Tensor:
+#         assert simplex(probs) and simplex(target)
+
+#         pc = probs[:, self.idc, ...].type(torch.float32)
+#         tc = target[:, self.idc, ...].type(torch.float32)
+
+#         intersection: Tensor = einsum("bcwh,bcwh->bc", pc, tc)
+#         union: Tensor = (einsum("bcwh->bc", pc) + einsum("bcwh->bc", tc))
+
+#         divided: Tensor = 1 - (2 * intersection + 1e-10) / (union + 1e-10)
+
+#         loss = divided.mean()
+
+#         return loss
 
 # class GeneralizedDice(nn.Module):
 #     def __init__(self, **kwargs):
@@ -455,6 +472,10 @@ def GeneralizedDice(probs, target, idc):
         union = torch.Tensor()
         divided = torch.Tensor()
 
+        #torch.save(tc, 'targets2.pt')
+        #torch.save(pc, "probs2.pt")
+        #tc_sum = einsum("bcwh->bc", tc)
+
         w = 1 / ((einsum("bcwh->bc", tc).type(torch.float32) + 1e-10) ** 2)
         intersection = w * einsum("bcwh,bcwh->bc", pc, tc)
         union = w * (einsum("bcwh->bc", pc) + einsum("bcwh->bc", tc))
@@ -465,19 +486,54 @@ def GeneralizedDice(probs, target, idc):
 
         return loss
 
-# class SurfaceLoss():
-#     def __init__(self, **kwargs):
-#         # Self.idc is used to filter out some classes of the target mask. Use fancy indexing
-#         self.idc= kwargs["idc"]
-#         #print(f"Initialized {self.__class__.__name__} with {kwargs}")
+def GeneralizedDice2(probs, target, dist_maps, idc, idc2):
+        assert simplex(probs) and simplex(target)
+        assert not one_hot(dist_maps)
 
-#     def __call__(self, probs: Tensor, dist_maps: Tensor, _: Tensor) -> Tensor:
+
+        pc = probs[:, idc, ...].type(torch.float32)
+        tc = target[:, idc, ...].type(torch.float32)
+        #pc2 = probs[:, idc2, ...].type(torch.float32)
+        dc = dist_maps[:, idc, ...].type(torch.float32) 
+
+        w = torch.Tensor()
+        intersection = torch.Tensor()
+        union = torch.Tensor()
+        divided = torch.Tensor()
+
+        #torch.save(tc, 'targets2.pt')
+        #torch.save(pc, "probs2.pt")
+        #tc_sum = einsum("bcwh->bc", tc)
+
+        w = 1 / ((einsum("bcwh->bc", tc).type(torch.float32) + 1e-10) ** 2)
+        intersection = w * einsum("bcwh,bcwh->bc", pc, tc)
+        union = w * (einsum("bcwh->bc", pc) + einsum("bcwh->bc", tc))
+
+        divided = 1 - 2 * (einsum("bc->b", intersection) + 1e-10) / (einsum("bc->b", union) + 1e-10)
+        multipled = einsum("bcwh,bcwh->bcwh", pc, dc)
+        #print("divided ", divided)
+        loss = divided.mean()
+        loss += multipled.mean()
+
+        return loss
+
 def SurfaceLoss(probs, dist_maps, idc):
         assert simplex(probs)
         assert not one_hot(dist_maps)
 
+        # probs[:, 0, ...] = 0
+        # dist_maps[:,0, ...] = 0
+        # pc = torch.zeros(probs.shape)
+        # dc = torch.zeros(dist_maps.shape)
+
+        # pc = pc[0, probs[:, idc, ...]].type(torch.float32)
+        # dc = dc[0, dist_maps[:, idc, ...]].type(torch.float32)
+        
         pc = probs[:, idc, ...].type(torch.float32)
-        dc = dist_maps[:, idc, ...].type(torch.float32)
+        dc = dist_maps[:, idc, ...].type(torch.float32)        
+
+        print("pc ", pc.shape)
+        print("dc ", dc.shape)
 
         multipled = einsum("bcwh,bcwh->bcwh", pc, dc)
 
@@ -493,44 +549,50 @@ class Combined(nn.Module):
         self.idc = kwargs["idc"]
     def forward(self, probs: Tensor, target: Tensor, onehot_labels: Tensor, dist_maps: Tensor) -> Tensor:
         outputs_softmaxes = F.softmax(probs, dim=1)
-        with torch.no_grad():
-            onehot_labels = cuda(onehot_labels)
-            dist_maps = cuda(dist_maps)
+        
+        #with torch.no_grad():
+        onehot_labels = cuda(onehot_labels)
+        dist_maps = cuda(dist_maps)
+        
         #print("onehot_labels ", onehot_labels)
-        #region_loss = GeneralizedDice(probs=outputs_softmaxes, target=onehot_labels.to(device='cuda'), idc=[0, 1, 2, 3, 4, 5, 6, 7])
-        region_loss = GeneralizedDice(probs=outputs_softmaxes, target=onehot_labels, idc=[0, 1, 2, 3, 4, 5, 6, 7])
-        surface_loss = SurfaceLoss(probs=outputs_softmaxes, dist_maps=dist_maps, idc=[1, 2, 3, 4, 5, 6, 7])
+        #region_loss = GeneralizedDice(probs=outputs_softmaxes, target=onehot_labels, idc=[0, 1, 2, 3, 4, 5, 6, 7])
+        #surface_loss = SurfaceLoss(probs=outputs_softmaxes, dist_maps=dist_maps, idc=[1, 2, 3, 4, 5, 6, 7])
+        region_loss = GeneralizedDice2(probs=outputs_softmaxes, target=onehot_labels, dist_maps=dist_maps, idc=[0, 1, 2, 3, 4, 5, 6, 7], idc2=[1, 2, 3, 4, 5, 6, 7])
 
         print("region: ", region_loss)
-        print("surface: ", surface_loss)
-        alpha = 0.7
-        total_loss = (alpha*region_loss) + ((1-alpha) * surface_loss)
+        #print("surface: ", surface_loss)
+        #alpha = 0.80
+        #total_loss = (alpha*region_loss) + ((1-alpha) * surface_loss)
         #print("total_loss ", total_loss)
-        return total_loss
-        #return surface_loss
+        #return total_loss
+        return region_loss
 
         #return GeneralizedDice(probs=outputs_softmaxes, target=onehot_labels, idc=[0, 1]) + SurfaceLoss(probs=outputs_softmaxes, dist_maps=dist_maps, idc=[1]) 
-# class DiceLoss():
-#     def __init__(self, **kwargs):
-#         # Self.idc is used to filter out some classes of the target mask. Use fancy indexing
-#         self.idc: List[int] = kwargs["idc"]
-#         print(f"Initialized {self.__class__.__name__} with {kwargs}")
 
-#     def __call__(self, probs: Tensor, target: Tensor, _: Tensor) -> Tensor:
-#         assert simplex(probs) and simplex(target)
+class Combined_Lovasz(nn.Module):
+    def __init__(self, **kwargs):
+        super(Combined_Lovasz, self).__init__()
+        # Self.idc is used to filter out some classes of the target mask. Use fancy indexing
+        self.idc = kwargs["idc"]
+    def forward(self, probs: Tensor, target: Tensor, onehot_labels: Tensor, dist_maps: Tensor) -> Tensor:
+        outputs_softmaxes = F.softmax(probs, dim=1)
 
-#         pc = probs[:, self.idc, ...].type(torch.float32)
-#         tc = target[:, self.idc, ...].type(torch.float32)
+        #with torch.no_grad():
+        #    onehot_labels = cuda(onehot_labels)
+        dist_maps = cuda(dist_maps)
 
-#         intersection: Tensor = einsum("bcwh,bcwh->bc", pc, tc)
-#         union: Tensor = (einsum("bcwh->bc", pc) + einsum("bcwh->bc", tc))
+        #print("onehot_labels ", onehot_labels)
+        lovasz = lovasz_softmax(outputs_softmaxes, target, per_image=False)
+        surface_loss = SurfaceLoss(probs=outputs_softmaxes, dist_maps=dist_maps, idc=[1, 2, 3, 4, 5, 6, 7])
 
-#         divided: Tensor = 1 - (2 * intersection + 1e-10) / (union + 1e-10)
-
-#         loss = divided.mean()
-
-#         return loss
-
+        print("lovasz: ", lovasz)
+        print("surface: ", surface_loss)
+        alpha = torch.tensor(0.80, dtype=torch.float32).cuda()
+        remainer = torch.tensor(1.0 - alpha, dtype=torch.float32).cuda()
+        total_loss = (alpha*lovasz).add( (remainer * surface_loss))
+        #total_loss = (torch.mm(alpha,lovasz)).add(torch.mm((1.0-alpha), surface_loss))
+        #print("total_loss ", total_loss)
+        return total_loss
 
 # class SurfaceLoss():
 #     def __init__(self, num_classes, **kwargs):

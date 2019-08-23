@@ -24,6 +24,8 @@ def lovasz_grad(gt_sorted):
     gts = gt_sorted.sum()
     intersection = gts - gt_sorted.float().cumsum(0)
     union = gts + (1 - gt_sorted).float().cumsum(0)
+    #print("intersection ", intersection.shape)
+    #print("union ", union.shape)
     jaccard = 1. - intersection / union
     if p > 1:  # cover 1-pixel case
         jaccard[1:p] = jaccard[1:p] - jaccard[0:-1]
@@ -151,6 +153,26 @@ def lovasz_softmax(probas, labels, classes='present', per_image=False, ignore=No
         loss = lovasz_softmax_flat(*flatten_probas(probas, labels, ignore), classes=classes)
     return loss
 
+def flatten_probas(probas, labels, ignore=None):
+    """
+    Flattens predictions in the batch
+    """
+    if probas.dim() == 3:
+        # assumes output of a sigmoid layer
+        B, H, W = probas.size()
+        probas = probas.view(B, 1, H, W)
+    B, C, H, W = probas.size()
+    probas = probas.permute(0, 2, 3, 1).contiguous().view(-1, C)  # B * H * W, C = P, C    12*1024*1280, 8
+    #print("probas", probas.shape)
+    labels = labels.view(-1)
+    if ignore is None:
+        return probas, labels
+    valid = (labels != ignore)
+    vprobas = probas[valid.nonzero().squeeze()]
+    vlabels = labels[valid]
+    print("vprobas ", vprobas.shape)
+    print("vlabels ", vlabels.shape)
+    return vprobas, vlabels   
 
 def lovasz_softmax_flat(probas, labels, classes='present'):
     """
@@ -179,8 +201,16 @@ def lovasz_softmax_flat(probas, labels, classes='present'):
         errors_sorted, perm = torch.sort(errors, 0, descending=True)
         perm = perm.data
         fg_sorted = fg[perm]
-        losses.append(torch.dot(errors_sorted, Variable(lovasz_grad(fg_sorted))))
+        #For multilabel datasets, the Jaccard index is commonly averaged across classes, yielding the mean IoU (mIoU)
+        #losses.append(torch.dot(errors_sorted, Variable(lovasz_grad(fg_sorted))))
+        #print("fg_sorted ", fg_sorted.shape)
+        fg_iou = Variable(lovasz_grad(fg_sorted))
+        #print("fg_iou", fg_iou.shape)
+        losses.append(torch.dot(errors_sorted, fg_iou))
     return mean(losses)
+    
+    # fin = torch.mean(torch.stack(losses))
+    # return fin
 
 # def lovasz_softmax_flat(prb, lbl, ignore_index, only_present):
 #     """
@@ -213,25 +243,6 @@ def lovasz_softmax_flat(probas, labels, classes='present'):
 #         total_loss += torch.dot(errors_sorted, lovasz_grad(fg_sorted))
 #         cnt += 1
 #     return total_loss / cnt
-
-
-def flatten_probas(probas, labels, ignore=None):
-    """
-    Flattens predictions in the batch
-    """
-    if probas.dim() == 3:
-        # assumes output of a sigmoid layer
-        B, H, W = probas.size()
-        probas = probas.view(B, 1, H, W)
-    B, C, H, W = probas.size()
-    probas = probas.permute(0, 2, 3, 1).contiguous().view(-1, C)  # B * H * W, C = P, C
-    labels = labels.view(-1)
-    if ignore is None:
-        return probas, labels
-    valid = (labels != ignore)
-    vprobas = probas[valid.nonzero().squeeze()]
-    vlabels = labels[valid]
-    return vprobas, vlabels
 
 def xloss(logits, labels, ignore=None):
     """

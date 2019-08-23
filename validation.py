@@ -49,13 +49,21 @@ def validation_multi(model: nn.Module, criterion, valid_loader, num_classes):
             outputs = model(inputs)
             loss = criterion(outputs, targets)
             #loss = criterion(outputs, targets, mask_onehot, mask_distmap)
+            #print("loss item ", loss.item())
             losses.append(loss.item())
+            #print("outputs ", outputs.shape)
+
             output_classes = outputs.data.cpu().numpy().argmax(axis=1)
+            #print("output_classes ", output_classes)
+
             target_classes = targets.data.cpu().numpy()
+            #print("target_classes ", target_classes)
+
             confusion_matrix += calculate_confusion_matrix_from_arrays(
                 output_classes, target_classes, num_classes)
-
+        #print("confusion_one ", confusion_matrix)
         confusion_matrix = confusion_matrix[1:, 1:]  # exclude background
+        print("confusion_two ", confusion_matrix)
         valid_loss = np.mean(losses)  # type: float
         ious = {'iou_{}'.format(cls + 1): iou
                 for cls, iou in enumerate(calculate_iou(confusion_matrix))}
@@ -63,6 +71,8 @@ def validation_multi(model: nn.Module, criterion, valid_loader, num_classes):
         dices = {'dice_{}'.format(cls + 1): dice
                  for cls, dice in enumerate(calculate_dice(confusion_matrix))}
 
+        print("iou ", ious)
+        print("dice ", dices)
         average_iou = np.mean(list(ious.values()))
         average_dices = np.mean(list(dices.values()))
 
@@ -98,7 +108,8 @@ def calculate_iou(confusion_matrix):
         false_negatives = confusion_matrix[index, :].sum() - true_positives
         denom = true_positives + false_positives + false_negatives
         if denom == 0:
-            iou = 0
+            #iou = 0
+            iou = float('nan')            
         else:
             iou = float(true_positives) / denom
         ious.append(iou)
