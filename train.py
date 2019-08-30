@@ -104,6 +104,9 @@ def main():
         # loss = DICELoss(weights = weights)
         #loss = WassersteinDice(n_classes=num_classes)
 
+    criterion_path = Path.joinpath(root, type(loss).__name__)
+    criterion_path.mkdir(exist_ok=True, parents=True)
+    
     if args.model == 'UNet':
         model = UNet(num_classes=num_classes)
     # elif args.model == 'TernausNetOC':

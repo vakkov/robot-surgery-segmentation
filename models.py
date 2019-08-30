@@ -16,6 +16,8 @@ from modules.densenet import DenseNet
 from pathlib import Path
 #from torchsummary import summary
 
+def conv3x3(in_, out):
+    return nn.Conv2d(in_, out, 3, padding=1)
 
 class DecoderBlock_U(nn.Module):
     """
@@ -107,7 +109,7 @@ class DecoderBlockv2(nn.Module):
 
     def forward(self, x, e=None):
         #x = F.upsample(x, scale_factor=2, mode='nearest')
-        x = nn.functional.interpolate(x, scale_factor=2, mode='nearest')
+        x = F.interpolate(x, scale_factor=2, mode='nearest')
         x = self.block(x)
         if e is not None:
             x = torch.cat([x, e], 1)

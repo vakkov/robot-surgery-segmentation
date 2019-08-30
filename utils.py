@@ -8,6 +8,7 @@ import numpy as np
 import torch
 import tqdm
 import sys
+from tensorboardX import SummaryWriter
 
 def cuda(x):
     if sys.version_info <= (3, 6):
@@ -43,8 +44,10 @@ def train(args, model, criterion, train_loader, valid_loader, validation, init_o
     n_epochs = n_epochs or args.n_epochs
     optimizer = init_optimizer(lr)
 
+    criterion_name = type(criterion).__name__
     root = Path(args.root)
-    model_path = root / 'model_{fold}.pt'.format(fold=fold)
+    model_path = root / criterion_name/ 'model_{fold}.pt'.format(fold=fold)
+    writer = SummaryWriter(root/criterion_name/ 'model_{fold}'.format(fold=fold)) 
     if model_path.exists():
         state = torch.load(str(model_path))
         epoch = state['epoch']
@@ -101,14 +104,29 @@ def train(args, model, criterion, train_loader, valid_loader, validation, init_o
                 tq.set_postfix(loss='{:.5f}'.format(mean_loss))
                 if i and i % report_each == 0:
                     write_event(log, step, loss=mean_loss)
+                    writer.add_scalar(criterion_name + '/mean_loss', mean_loss, step)
+
                 #torch.cuda.empty_cache()
             write_event(log, step, loss=mean_loss)
+            writer.add_scalar(criterion_name + '/epoch_mean_loss', mean_loss, step)
             tq.close()
             save(epoch + 1)
             valid_metrics = validation(model, criterion, valid_loader, num_classes)
             write_event(log, step, **valid_metrics)
+            #writer.add_histogram(criterion_name + '/histogram', np.array(valid_metrics), step)
             valid_loss = valid_metrics['valid_loss']
+            if args.type == 'binary':
+                jaccard_loss = valid_metrics['jaccard_loss']
+            else:
+                average_iou = valid_metrics['iou']
+                average_dice = valid_metrics['avg_dice']
             valid_losses.append(valid_loss)
+            writer.add_scalar(criterion_name + '/valid_loss', valid_loss, step)
+            if args.type == 'binary':
+                writer.add_scalar(criterion_name + '/jaccard_valid_loss', jaccard_loss, step)
+            else:
+                writer.add_scalar(criterion_name + '/avg_iou', average_iou, step)
+                writer.add_scalar(criterion_name + '/avg_dice', average_dice, step)
         except KeyboardInterrupt:
             tq.close()
             print('Ctrl+C, saving snapshot')

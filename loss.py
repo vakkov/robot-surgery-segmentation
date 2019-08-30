@@ -36,6 +36,8 @@ class LossBinary:
 
             loss -= self.jaccard_weight * torch.log((intersection + eps) / (union - intersection + eps))
         return loss
+    # def whoami(self):
+    #    print type(self).__name__
 
 class LossStableBCE:
     """
@@ -587,10 +589,12 @@ class Combined_Lovasz(nn.Module):
 
         print("lovasz: ", lovasz)
         print("surface: ", surface_loss)
-        alpha = torch.tensor(0.80, dtype=torch.float32).cuda()
-        remainer = torch.tensor(1.0 - alpha, dtype=torch.float32).cuda()
-        total_loss = (alpha*lovasz).add( (remainer * surface_loss))
+        #alpha = torch.tensor(0.80, dtype=torch.float32).cuda()
+        #remainer = torch.tensor(1.0 - alpha, dtype=torch.float32).cuda()
+        #total_loss = (alpha*lovasz).add( (remainer * surface_loss))
         #total_loss = (torch.mm(alpha,lovasz)).add(torch.mm((1.0-alpha), surface_loss))
+        alpha = 0.99
+        total_loss = (alpha*lovasz) + ((1-alpha) * surface_loss)
         #print("total_loss ", total_loss)
         return total_loss
 

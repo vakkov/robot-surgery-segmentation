@@ -4,8 +4,8 @@ for i in 0 1 2 3
 #for i in 0 1
 do
     python train.py \
-        --device-ids 0,1,3 \
-        --batch-size 6 \
+        --device-ids 0,1,2 \
+        --batch-size 9 \
         --fold $i \
         --workers 20 \
         --lr 0.0001 \
@@ -16,10 +16,10 @@ do
         --train_crop_width 1280 \
         --val_crop_height 1024 \
         --val_crop_width 1280 \
-        --type binary
+        --type instruments
     python train.py \
-        --device-ids 0,1,3 \
-        --batch-size 6 \
+        --device-ids 0,1,2 \
+        --batch-size 9 \
         --fold $i \
         --workers 20 \
         --lr 0.00001 \
@@ -30,5 +30,5 @@ do
         --train_crop_width 1280 \
         --val_crop_height 1024 \
         --val_crop_width 1280 \
-        --type binary
+        --type instruments
 done
