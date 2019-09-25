@@ -44,10 +44,10 @@ def train(args, model, criterion, train_loader, valid_loader, validation, init_o
     n_epochs = n_epochs or args.n_epochs
     optimizer = init_optimizer(lr)
 
-    criterion_name = type(criterion).__name__
+    criterion_name = type(criterion).__name__ + "_" + args.model
     root = Path(args.root)
-    model_path = root / criterion_name/ 'model_{fold}.pt'.format(fold=fold)
-    writer = SummaryWriter(root/criterion_name/ 'model_{fold}'.format(fold=fold)) 
+    model_path = root / criterion_name/args.type/ 'model_{fold}.pt'.format(fold=fold)
+    writer = SummaryWriter(root/criterion_name/args.type/ 'model_{fold}'.format(fold=fold)) 
     if model_path.exists():
         state = torch.load(str(model_path))
         epoch = state['epoch']
@@ -65,7 +65,7 @@ def train(args, model, criterion, train_loader, valid_loader, validation, init_o
     }, str(model_path))
 
     report_each = 10
-    log = root.joinpath('train_{fold}.log'.format(fold=fold)).open('at', encoding='utf8')
+    log = root.joinpath(criterion_name).joinpath(args.type).joinpath('train_{fold}.log'.format(fold=fold)).open('at', encoding='utf8')
     valid_losses = []
     for epoch in range(epoch, n_epochs + 1):
         torch.cuda.empty_cache()
@@ -80,8 +80,8 @@ def train(args, model, criterion, train_loader, valid_loader, validation, init_o
             for i, (inputs, targets) in enumerate(tl):
             #for i, (inputs, targets, mask_onehot, mask_distmap) in enumerate(tl):
                 inputs = cuda(inputs)
-                # mask_onehot = cuda(mask_onehot)
-                # mask_distmap = cuda(mask_distmap)
+                #mask_onehot = cuda(mask_onehot)
+                #mask_distmap = cuda(mask_distmap)
 
                 with torch.no_grad():
                     targets = cuda(targets)
@@ -91,8 +91,8 @@ def train(args, model, criterion, train_loader, valid_loader, validation, init_o
                 #loss = criterion(outputs, targets, mask_onehot, mask_distmap)
                 optimizer.zero_grad()
                 batch_size = inputs.size(0)
-                loss.backward()
-                #loss.mean().backward()
+                #loss.backward()
+                loss.mean().backward()
                 optimizer.step()
                 step += 1
                 #step = step + 1
@@ -104,10 +104,11 @@ def train(args, model, criterion, train_loader, valid_loader, validation, init_o
                 tq.set_postfix(loss='{:.5f}'.format(mean_loss))
                 if i and i % report_each == 0:
                     write_event(log, step, loss=mean_loss)
+                    #writer.add_scalar(criterion_name/args.type + '/mean_loss', mean_loss, step)
                     writer.add_scalar(criterion_name + '/mean_loss', mean_loss, step)
-
                 #torch.cuda.empty_cache()
             write_event(log, step, loss=mean_loss)
+            #writer.add_scalar(criterion_name/args.type + '/epoch_mean_loss', mean_loss, step)
             writer.add_scalar(criterion_name + '/epoch_mean_loss', mean_loss, step)
             tq.close()
             save(epoch + 1)
@@ -121,10 +122,14 @@ def train(args, model, criterion, train_loader, valid_loader, validation, init_o
                 average_iou = valid_metrics['iou']
                 average_dice = valid_metrics['avg_dice']
             valid_losses.append(valid_loss)
+            #writer.add_scalar(criterion_name/args.type + '/valid_loss', valid_loss, step)
             writer.add_scalar(criterion_name + '/valid_loss', valid_loss, step)
             if args.type == 'binary':
+                #writer.add_scalar(criterion_name/args.type + '/jaccard_valid_loss', jaccard_loss, step)
                 writer.add_scalar(criterion_name + '/jaccard_valid_loss', jaccard_loss, step)
             else:
+                # writer.add_scalar(criterion_name/args.type + '/avg_iou', average_iou, step)
+                # writer.add_scalar(criterion_name/args.type + '/avg_dice', average_dice, step)
                 writer.add_scalar(criterion_name + '/avg_iou', average_iou, step)
                 writer.add_scalar(criterion_name + '/avg_dice', average_dice, step)
         except KeyboardInterrupt:

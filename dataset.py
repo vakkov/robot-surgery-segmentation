@@ -40,8 +40,9 @@ class RoboticsDataset(Dataset):
                 # mask_distmap = one_hot2dist(mask_onehot.cpu().numpy())
                 # mask_distmap = torch.from_numpy(mask_distmap).float()
                 # return img_to_tensor(image), mask_tensor.long(), mask_onehot, mask_distmap
-                return img_to_tensor(image), torch.from_numpy(mask).long()
                 #return img_to_tensor(image), mask_tensor.long()
+                return img_to_tensor(image), torch.from_numpy(mask).long()
+
         else:
             return img_to_tensor(image), str(img_file_name)
 

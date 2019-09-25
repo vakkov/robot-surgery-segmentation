@@ -5,7 +5,7 @@ import argparse
 from prepare_train_val import get_split
 from dataset import RoboticsDataset
 import cv2
-from models import UNet16, LinkNet34, UNet11, UNet, AlbuNet, TernausNetV2, RasTerNetV2 #DeeperNetV3
+from models import UNet16, LinkNet34, UNet11, UNet, AlbuNet, TernausNetV2, RasTerNetV2, TernausNetOC #DeeperNetV3
 import torch
 from pathlib import Path
 from tqdm import tqdm
@@ -56,8 +56,8 @@ def get_model(model_path, model_type='UNet11', problem_type='binary'):
         model = TernausNetV2(num_classes=num_classes)
     elif model_type == 'RasTerNetV2':
         model = RasTerNetV2(num_classes=num_classes)
-    # elif model_type == 'TernausNetOC'
-    #     model = TernausNetOC(num_classes=num_classes)
+    elif model_type == 'TernausNetOC':
+        model = TernausNetOC(num_classes=num_classes)
     # elif model_type == 'DeeperNetV3'
     #     model = DeeperNetV3(num_classes=num_classes)     
 

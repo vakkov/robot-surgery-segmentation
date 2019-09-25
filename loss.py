@@ -39,6 +39,55 @@ class LossBinary:
     # def whoami(self):
     #    print type(self).__name__
 
+class BCEAndLovaszLoss_J(_Loss):
+    def __init__(self, bce_weight=1, lovasz_weight=1, jaccard_weight=0, per_image=True, from_logits=True):
+        super().__init__()
+        if not from_logits:
+            raise ValueError("This loss operates only on logits")
+
+        self.bce = BCELoss(per_image=per_image, from_logits=from_logits)
+        self.bce_weight = float(bce_weight)
+        self.lovasz = LovaszHingeLoss(per_image=per_image)
+        self.lovasz_weight = float(lovasz_weight)
+        self.jaccard_weight = jaccard_weight
+
+    def forward(self, y_pred: Tensor, y_true: Tensor):
+        bce_loss = self.bce(y_pred, y_true)
+        lov_loss = self.lovasz(y_pred, y_true)
+        if self.jaccard_weight:
+            eps = 1e-15
+            jaccard_target = (y_true == 1).float()
+            jaccard_output = F.sigmoid(y_pred)
+
+            intersection = (jaccard_output * jaccard_target).sum()
+            union = jaccard_output.sum() + jaccard_target.sum()
+            #print(self.jaccard_weight * torch.log((intersection + eps) / (union - intersection + eps)))
+
+            loss = (bce_loss *(1 - self.jaccard_weight) + lov_loss * self.lovasz_weight) / ((1 - self.jaccard_weight) + self.lovasz_weight)
+            loss -= self.jaccard_weight * torch.log((intersection + eps) / (union - intersection + eps))
+            #print("loss: ", loss)
+        else:
+            loss = (bce_loss * self.bce_weight + lov_loss * self.lovasz_weight) / (self.bce_weight + self.lovasz_weight)
+        return loss
+
+class BCEAndLovaszLoss(_Loss):
+    def __init__(self, bce_weight=1, lovasz_weight=1, per_image=True, from_logits=True):
+        super().__init__()
+        if not from_logits:
+            raise ValueError("This loss operates only on logits")
+
+        self.bce = BCELoss(per_image=per_image, from_logits=from_logits)
+        self.bce_weight = float(bce_weight)
+        self.lovasz = LovaszHingeLoss(per_image=per_image)
+        self.lovasz_weight = float(lovasz_weight)
+
+    def forward(self, y_pred: Tensor, y_true: Tensor):
+        bce_loss = self.bce(y_pred, y_true)
+        lov_loss = self.lovasz(y_pred, y_true)
+        loss = (bce_loss * self.bce_weight + lov_loss * self.lovasz_weight) / (self.bce_weight + self.lovasz_weight)
+        #print("loss: ", loss)
+        return loss
+
 class LossStableBCE:
     """
     Loss defined as \alpha BCE - (1 - \alpha) SoftJaccard
@@ -74,18 +123,20 @@ class LossMulti:
         self.num_classes = num_classes
 
     def __call__(self, outputs, targets):
-        #outputs = F.log_softmax(outputs, dim=1)
-        loss = (1 - self.jaccard_weight) * self.nll_loss(outputs, targets)
+        outputs = F.log_softmax(outputs, dim=1)
+        #loss = (1 - self.jaccard_weight) * self.nll_loss(outputs, targets) 
+        lovasz = lovasz_softmax(outputs, targets, classes = 'present', per_image=False)
+        loss = (1 - self.jaccard_weight) * lovasz
 
-        if self.jaccard_weight:
-            eps = 1e-15
-            for cls in range(self.num_classes):
-                jaccard_target = (targets == cls).float()
-                jaccard_output = outputs[:, cls].exp()
-                intersection = (jaccard_output * jaccard_target).sum()
+        # if self.jaccard_weight:
+        #     eps = 1e-15
+        #     for cls in range(self.num_classes):
+        #         jaccard_target = (targets == cls).float()
+        #         jaccard_output = outputs[:, cls].exp()
+        #         intersection = (jaccard_output * jaccard_target).sum()
 
-                union = jaccard_output.sum() + jaccard_target.sum()
-                loss -= torch.log((intersection + eps) / (union - intersection + eps)) * self.jaccard_weight
+        #         union = jaccard_output.sum() + jaccard_target.sum()
+        #         loss -= torch.log((intersection + eps) / (union - intersection + eps)) * self.jaccard_weight
         return loss
 
 
@@ -201,22 +252,6 @@ class LovaszHingeLoss(_Loss):
         return lovasz_hinge(output, target, self.per_image, self.ignore)
 
 
-class BCEAndLovaszLoss(_Loss):
-    def __init__(self, bce_weight=1, lovasz_weight=1, per_image=True, from_logits=True):
-        super().__init__()
-        if not from_logits:
-            raise ValueError("This loss operates only on logits")
-
-        self.bce = BCELoss(per_image=per_image, from_logits=from_logits)
-        self.bce_weight = float(bce_weight)
-        self.lovasz = LovaszHingeLoss(per_image=per_image)
-        self.lovasz_weight = float(lovasz_weight)
-
-    def forward(self, y_pred: Tensor, y_true: Tensor):
-        bce_loss = self.bce(y_pred, y_true)
-        lov_loss = self.lovasz(y_pred, y_true)
-        return (bce_loss * self.bce_weight + lov_loss * self.lovasz_weight) / (self.bce_weight + self.lovasz_weight)
-
 # class LovaszSoftmax(_Loss):
 #     def __init__(self, classes='present', per_image=True, ignore=None):
 #         super().__init__()
@@ -228,10 +263,11 @@ class BCEAndLovaszLoss(_Loss):
 #         return lovasz_softmax(output, target, self.per_image, self.ignore)
 
 class LovaszSoftmax(nn.Module):
-    def __init__(self, per_image=False):
+    def __init__(self, per_image=False, classes='present'):
         super(LovaszSoftmax, self).__init__()
         self.lovasz_softmax = lovasz_softmax
         self.per_image = per_image
+        self.classes = classes
 
     def forward(self, pred, label):
         """
@@ -240,7 +276,7 @@ class LovaszSoftmax(nn.Module):
         :return:
         """
         pred = F.softmax(pred, dim=1)
-        res = self.lovasz_softmax(pred, label, per_image=self.per_image)
+        res = self.lovasz_softmax(pred, label, per_image=self.per_image, classes = self.classes)
         #print("lovasz_softmax: ", res)
         return res
 
@@ -488,36 +524,36 @@ def GeneralizedDice(probs, target, idc):
 
         return loss
 
-def GeneralizedDice2(probs, target, dist_maps, idc, idc2):
-        assert simplex(probs) and simplex(target)
-        assert not one_hot(dist_maps)
+# def GeneralizedDice2(probs, target, dist_maps, idc, idc2):
+#         assert simplex(probs) and simplex(target)
+#         assert not one_hot(dist_maps)
 
 
-        pc = probs[:, idc, ...].type(torch.float32)
-        tc = target[:, idc, ...].type(torch.float32)
-        #pc2 = probs[:, idc2, ...].type(torch.float32)
-        dc = dist_maps[:, idc, ...].type(torch.float32) 
+#         pc = probs[:, idc, ...].type(torch.float32)
+#         tc = target[:, idc, ...].type(torch.float32)
+#         #pc2 = probs[:, idc2, ...].type(torch.float32)
+#         dc = dist_maps[:, idc, ...].type(torch.float32) 
 
-        w = torch.Tensor()
-        intersection = torch.Tensor()
-        union = torch.Tensor()
-        divided = torch.Tensor()
+#         w = torch.Tensor()
+#         intersection = torch.Tensor()
+#         union = torch.Tensor()
+#         divided = torch.Tensor()
 
-        #torch.save(tc, 'targets2.pt')
-        #torch.save(pc, "probs2.pt")
-        #tc_sum = einsum("bcwh->bc", tc)
+#         #torch.save(tc, 'targets2.pt')
+#         #torch.save(pc, "probs2.pt")
+#         #tc_sum = einsum("bcwh->bc", tc)
 
-        w = 1 / ((einsum("bcwh->bc", tc).type(torch.float32) + 1e-10) ** 2)
-        intersection = w * einsum("bcwh,bcwh->bc", pc, tc)
-        union = w * (einsum("bcwh->bc", pc) + einsum("bcwh->bc", tc))
+#         w = 1 / ((einsum("bcwh->bc", tc).type(torch.float32) + 1e-10) ** 2)
+#         intersection = w * einsum("bcwh,bcwh->bc", pc, tc)
+#         union = w * (einsum("bcwh->bc", pc) + einsum("bcwh->bc", tc))
 
-        divided = 1 - 2 * (einsum("bc->b", intersection) + 1e-10) / (einsum("bc->b", union) + 1e-10)
-        multipled = einsum("bcwh,bcwh->bcwh", pc, dc)
-        #print("divided ", divided)
-        loss = divided.mean()
-        loss += multipled.mean()
+#         divided = 1 - 2 * (einsum("bc->b", intersection) + 1e-10) / (einsum("bc->b", union) + 1e-10)
+#         multipled = einsum("bcwh,bcwh->bcwh", pc, dc)
+#         #print("divided ", divided)
+#         loss = divided.mean()
+#         loss += multipled.mean()
 
-        return loss
+#         return loss
 
 def SurfaceLoss(probs, dist_maps, idc):
         assert simplex(probs)
@@ -534,8 +570,8 @@ def SurfaceLoss(probs, dist_maps, idc):
         pc = probs[:, idc, ...].type(torch.float32)
         dc = dist_maps[:, idc, ...].type(torch.float32)        
 
-        print("pc ", pc.shape)
-        print("dc ", dc.shape)
+        #print("pc ", pc.shape)
+        #print("dc ", dc.shape)
 
         multipled = einsum("bcwh,bcwh->bcwh", pc, dc)
 
@@ -557,17 +593,19 @@ class Combined(nn.Module):
         dist_maps = cuda(dist_maps)
         
         #print("onehot_labels ", onehot_labels)
-        #region_loss = GeneralizedDice(probs=outputs_softmaxes, target=onehot_labels, idc=[0, 1, 2, 3, 4, 5, 6, 7])
-        #surface_loss = SurfaceLoss(probs=outputs_softmaxes, dist_maps=dist_maps, idc=[1, 2, 3, 4, 5, 6, 7])
-        region_loss = GeneralizedDice2(probs=outputs_softmaxes, target=onehot_labels, dist_maps=dist_maps, idc=[0, 1, 2, 3, 4, 5, 6, 7], idc2=[1, 2, 3, 4, 5, 6, 7])
+        region_loss = GeneralizedDice(probs=outputs_softmaxes, target=onehot_labels, idc=[0, 1, 2, 3, 4, 5, 6, 7])
+        surface_loss = SurfaceLoss(probs=outputs_softmaxes, dist_maps=dist_maps, idc=[1, 2, 3, 4, 5, 6, 7])
+        #region_loss = GeneralizedDice2(probs=outputs_softmaxes, target=onehot_labels, dist_maps=dist_maps, idc=[0, 1, 2, 3, 4, 5, 6, 7], idc2=[1, 2, 3, 4, 5, 6, 7])
 
-        print("region: ", region_loss)
+        #print("region: ", region_loss)
         #print("surface: ", surface_loss)
         #alpha = 0.80
         #total_loss = (alpha*region_loss) + ((1-alpha) * surface_loss)
+        total_loss = (region_loss) + ((0.01) * surface_loss)
+
         #print("total_loss ", total_loss)
-        #return total_loss
-        return region_loss
+        return total_loss
+        #return region_loss
 
         #return GeneralizedDice(probs=outputs_softmaxes, target=onehot_labels, idc=[0, 1]) + SurfaceLoss(probs=outputs_softmaxes, dist_maps=dist_maps, idc=[1]) 
 
@@ -584,8 +622,9 @@ class Combined_Lovasz(nn.Module):
         dist_maps = cuda(dist_maps)
 
         #print("onehot_labels ", onehot_labels)
-        lovasz = lovasz_softmax(outputs_softmaxes, target, per_image=False)
-        surface_loss = SurfaceLoss(probs=outputs_softmaxes, dist_maps=dist_maps, idc=[1, 2, 3, 4, 5, 6, 7])
+        lovasz = lovasz_softmax(outputs_softmaxes, target, classes = 'present', per_image=False)
+        #surface_loss = SurfaceLoss(probs=outputs_softmaxes, dist_maps=dist_maps, idc=[1, 2, 3, 4, 5, 6, 7])
+        surface_loss = SurfaceLoss(probs=outputs_softmaxes, dist_maps=dist_maps, idc=[1, 2, 3])
 
         print("lovasz: ", lovasz)
         print("surface: ", surface_loss)
@@ -593,8 +632,8 @@ class Combined_Lovasz(nn.Module):
         #remainer = torch.tensor(1.0 - alpha, dtype=torch.float32).cuda()
         #total_loss = (alpha*lovasz).add( (remainer * surface_loss))
         #total_loss = (torch.mm(alpha,lovasz)).add(torch.mm((1.0-alpha), surface_loss))
-        alpha = 0.99
-        total_loss = (alpha*lovasz) + ((1-alpha) * surface_loss)
+        alpha = 0.96
+        total_loss = (lovasz) + ((1-alpha) * surface_loss)
         #print("total_loss ", total_loss)
         return total_loss
 

@@ -64,6 +64,7 @@ def validation_multi(model: nn.Module, criterion, valid_loader, num_classes):
         #print("confusion_one ", confusion_matrix)
         confusion_matrix = confusion_matrix[1:, 1:]  # exclude background
         print("confusion_two ", confusion_matrix)
+        
         valid_loss = np.mean(losses)  # type: float
         ious = {'iou_{}'.format(cls + 1): iou
                 for cls, iou in enumerate(calculate_iou(confusion_matrix))}

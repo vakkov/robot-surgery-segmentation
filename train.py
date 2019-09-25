@@ -12,9 +12,9 @@ from torch.utils.data import DataLoader
 import torch.backends.cudnn as cudnn
 import torch.backends.cudnn
 
-from models import RasTerNetV2, TernausNetV2, UNet11, LinkNet34, UNet, UNet16, AlbuNet #DeeperNetV3
+from models import RasTerNetV2, TernausNetV2, UNet11, LinkNet34, UNet, UNet16, AlbuNet, RasNetV3
 # from ternaus_v3_oc import TernausNetOC
-from loss import LossBinary, LossMulti, FocalAndJaccardLoss, BCEAndLovaszLoss, LovaszSoftmax, SoftIoULoss, SurfaceLoss, Combined, Combined_Lovasz
+from loss import LossBinary, LossMulti, FocalAndJaccardLoss, BCEAndLovaszLoss, LovaszSoftmax, SoftIoULoss, SurfaceLoss, Combined, Combined_Lovasz, BCEAndLovaszLoss_J
 from loss2 import BinaryDiceLoss, DiceLoss, Dice_loss, DICELoss
 from modules.wasserstein import WassersteinDice
 from dataset import RoboticsDataset
@@ -33,7 +33,7 @@ from albumentations import (
 )
 
 moddel_list = {#'TernausNetOC': TernausNetOC,
-               #'DeeperNetV3': DeeperNetV3,
+               'RasNetV3': RasNetV3,
                'TernausNetV2': TernausNetV2,
                'RasTerNetV2': RasTerNetV2,
                'UNet11': UNet11,
@@ -86,17 +86,19 @@ def main():
         num_classes = 1
 
     if args.type == 'binary':
-        #loss = LossBinary(jaccard_weight=args.jaccard_weight)
+        loss = LossBinary(jaccard_weight=args.jaccard_weight)
         #loss = FocalAndJaccardLoss(focal_weight=0.7, jaccard_weight=args.jaccard_weight, per_image=True)
-        loss = BCEAndLovaszLoss(bce_weight=0.1, lovasz_weight=0.9, per_image=False)
+        #loss = BCEAndLovaszLoss(bce_weight=0.1, lovasz_weight=0.9, per_image=False)
+        #loss = BCEAndLovaszLoss(bce_weight=1.0, lovasz_weight=1.5, per_image=False)
     else:
-        #loss = LossMulti(num_classes=num_classes, jaccard_weight=args.jaccard_weight)
-        loss = LovaszSoftmax()
+        loss = LossMulti(num_classes=num_classes, jaccard_weight=args.jaccard_weight)
+        #loss = LovaszSoftmax(classes = 'all')
         
         #loss =  SoftIoULoss(n_classes=num_classes)
         
         #loss = SurfaceLoss(kwargs={"idc": [1,7], "num_classes": num_classes}, num_classes=num_classes)
         #loss = Combined(idc=[0, 1]) 
+
         #loss = Combined_Lovasz(idc=[0, 1])
         #loss = DiceLoss(n_classes=num_classes)
         
@@ -104,7 +106,7 @@ def main():
         # loss = DICELoss(weights = weights)
         #loss = WassersteinDice(n_classes=num_classes)
 
-    criterion_path = Path.joinpath(root, type(loss).__name__)
+    criterion_path = Path.joinpath(root, (type(loss).__name__ + "_" + args.model), args.type)
     criterion_path.mkdir(exist_ok=True, parents=True)
     
     if args.model == 'UNet':
@@ -115,8 +117,8 @@ def main():
         model = TernausNetV2(num_classes=num_classes, pretrained=True)
     elif args.model == 'RasTerNetV2':
         model = RasTerNetV2(num_classes=num_classes, pretrained=True)
-    # elif args.model == 'DeeperNetV3':
-    #     model = DeeperNetV3(num_classes=num_classes, pretrained=True)
+    elif args.model == 'RasNetV3':
+        model = RasNetV3(num_classes=num_classes, pretrained=True)
     else:
         model_name = moddel_list[args.model]
         model = model_name(num_classes=num_classes, pretrained=True)
@@ -134,7 +136,7 @@ def main():
 
     cudnn.benchmark = True
 
-    def make_loader(file_names, shuffle=False, transform=None, problem_type='binary', batch_size=1):
+    def make_loader(file_names, shuffle=False, transform=None, problem_type=args.type, batch_size=1):
         return DataLoader(
             dataset=RoboticsDataset(file_names, transform=transform, problem_type=problem_type),
             shuffle=shuffle,
@@ -176,7 +178,7 @@ def main():
     valid_loader = make_loader(val_file_names, transform=val_transform(p=1), problem_type=args.type,
                                batch_size=len(device_ids))
 
-    root.joinpath('params.json').write_text(
+    criterion_path.joinpath('params.json').write_text(
         json.dumps(vars(args), indent=True, sort_keys=True))
 
     if args.type == 'binary':

@@ -8,14 +8,15 @@ from tqdm import tqdm
 import cv2
 import numpy as np
 
-data_path = Path('/media/vakko/1f705bab-efa3-4021-966a-6a1651816881/Endovis/2017')
+data_path = Path('/raid/vakko/megadown')
 
 train_path = data_path / 'training'
 
-cropped_train_path = data_path / 'cropped_train'
+cropped_train_path = data_path / 'cropped_train2'
 
 original_height, original_width = 1080, 1920
 height, width = 1024, 1280
+#height, width = 256, 320
 h_start, w_start = 28, 320
 
 binary_factor = 255
