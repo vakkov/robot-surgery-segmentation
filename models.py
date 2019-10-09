@@ -6,10 +6,10 @@ from torch.nn import functional as F
 from torch.nn import Sequential
 from collections import OrderedDict
 #from modules.bn import InPlaceABN
-from modules.bn import InPlaceABNSync
+from modules.inplace_abn.abn import InPlaceABNSync
 from modules.misc import GlobalAvgPool2d
 from modules.conv import ConvRelu, ConvABN, ConvABN_GAU
-from modules.squeeze_and_excitation import SELayer, GAUModulev2, GAU, FPA, AttentionSpatialSELayer
+from modules.squeeze_and_excitation import SELayer, GAUModulev2, GAU, FPA #, AttentionSpatialSELayer
 
 from modules.wider_resnet import WiderResNet
 from pathlib import Path
@@ -129,56 +129,6 @@ class DecoderBlockv3(DecoderBlockv2):
             out = self.se(out, pooling = True)
             #out = functional.leaky_relu(out, negative_slope=0.01, inplace=True)      
         return out
-
-
-
-class FeaturePyramidAttention(nn.Module):
-    """Feature Pyramid Attetion (FPA) block
-       See https://arxiv.org/abs/1805.10180 Figure 3 b
-    """
-
-    def __init__(self, num_in, num_out):
-        super().__init__()
-
-        # no batch norm for tensors of shape NxCx1x1
-        self.top1x1 = nn.Sequential(nn.Conv2d(num_in, num_out, 1, bias=False), nn.ReLU(inplace=True))
-
-        self.mid1x1 = ConvABN_GAU(num_in, num_out, 1, norm_act=InPlaceABNSync)
-
-        self.bot5x5 = ConvABN_GAU(num_in, num_in, 5, stride=2, padding=2, norm_act=InPlaceABNSync)
-        self.bot3x3 = ConvABN_GAU(num_in, num_in, 3, stride=2, padding=1, norm_act=InPlaceABNSync)
-
-        self.lat5x5 = ConvABN_GAU(num_in, num_out, 5, stride=1, padding=2, norm_act=InPlaceABNSync)
-        self.lat3x3 = ConvABN_GAU(num_in, num_out, 3, stride=1, padding=1, norm_act=InPlaceABNSync)
-
-    def forward(self, x):
-        assert x.size()[-1] % 8 == 0 and x.size()[-2] % 8 == 0, "size has to be divisible by 8 for fpa"
-
-        # global pooling top pathway
-        top = self.top1x1(nn.functional.adaptive_avg_pool2d(x, 1))
-        top = nn.functional.interpolate(top, size=x.size()[-2:], mode="bilinear")
-
-        # conv middle pathway
-        mid = self.mid1x1(x)
-
-        # multi-scale bottom and lateral pathways
-        bot0 = self.bot5x5(x)
-        bot1 = self.bot3x3(bot0)
-
-        lat0 = self.lat5x5(bot0)
-        lat1 = self.lat3x3(bot1)
-
-        # upward accumulation pathways
-        up = lat0 + nn.functional.interpolate(lat1, scale_factor=2, mode="bilinear")
-        up = nn.functional.interpolate(up, scale_factor=2, mode="bilinear")
-
-        # print('up')
-        # print(up.size())
-        # print('mid')
-        # print(mid.size())
-        # print('top')
-        # print(top.size())
-        return up * mid + top
 
 
 class DecoderRasV3(nn.Module):
@@ -520,15 +470,15 @@ class RasTerNetV2(nn.Module):
 
         return x_out        
 
-# device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-# model = RasTerNetV2().to(device)
-# #print(model)
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+model = RasTerNetV2().to(device)
+print(model)
 
-# summary(model, (3, 1024, 1280))  
-# # for name, param in model.named_parameters():
-# #     if param.requires_grad:
-# #         #print (name, param.data)
-# #         print(name)      
+summary(model, (3, 1024, 1280))  
+# for name, param in model.named_parameters():
+#     if param.requires_grad:
+#         #print (name, param.data)
+#         print(name)      
 
 class TernausNetV2(nn.Module):
     """Variation of the UNet architecture with InplaceABN encoder."""

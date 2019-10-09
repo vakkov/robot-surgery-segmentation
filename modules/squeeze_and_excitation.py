@@ -279,8 +279,8 @@ class ChannelSpatialSELayer(nn.Module):
         :param reduction_ratio: By how much should the num_channels should be reduced
         """
         super(ChannelSpatialSELayer, self).__init__()
-        self.cSE = ChannelSELayer(num_channels, reduction_ratio)
         self.sSE = SpatialSELayer(num_channels)
+        self.cSE = ChannelSELayer(num_channels, reduction_ratio)
 
     def forward(self, input_tensor, pooling):
         """
@@ -290,43 +290,12 @@ class ChannelSpatialSELayer(nn.Module):
         """
 
         #TODO: SHOULDN'T THIS ADD THE TWO TENSORS?
-        #output_tensor = torch.max(self.cSE(input_tensor, pooling), self.sSE(input_tensor))
-        output_tensor = self.cSE(input_tensor, pooling) + self.sSE(input_tensor)
+        # print("input: ", input_tensor.size())
+        # print("cse: ", self.cSE(input_tensor, pooling).size())
+        # print("sse: ", self.sSE(input_tensor).size())
+        output_tensor = torch.max(self.cSE(input_tensor, pooling), self.sSE(input_tensor))
+        #output_tensor = self.sSE(input_tensor) + self.cSE(input_tensor, pooling)
         return output_tensor
-
-
-class AttentionSpatialSELayer(nn.Module):
-    """
-    Re-implementation of concurrent spatial and channel squeeze & excitation:
-        *Roy et al., Concurrent Spatial and Channel Squeeze & Excitation in Fully Convolutional Networks, arXiv:1803.02579*
-    """
-
-    #def __init__(self, num_channels, reduction_ratio=2):
-    def __init__(self, channels_high, channels_low, upsample = False):
-
-        """
-
-        :param num_channels: No of input channels
-        :param reduction_ratio: By how much should the num_channels should be reduced
-        """
-        super(AttentionSpatialSELayer, self).__init__()
-        self.GAU = GAU(channels_high, channels_low, upsample) #, upsample=True)
-        self.sSE = SpatialSELayer(channels_high)
-
-    def forward(self, channels_high, channels_low):
-        """
-
-        :param input_tensor: X, shape = (batch_size, num_channels, H, W)
-        :return: output_tensor
-        """
-
-        output_tensor = self.GAU(channels_high, channels_low) + self.sSE(channels_high)
-        return output_tensor
-
- # class GAUSELayer(nn.Module):
- #    def __init__(self, Enum, channels_high, channels_low):
- #        super(SELayer, self).__init__()
- #        self.SELayer = AttentionSpatialSELayer(channels_high, channels_low)       
 
 
 class SELayer(nn.Module):

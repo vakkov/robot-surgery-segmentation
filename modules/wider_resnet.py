@@ -3,7 +3,8 @@
 from collections import OrderedDict
 import torch.nn as nn
 
-from modules.bn import ABN
+#from modules.bn import ABN
+from modules.inplace_abn.abn import ABN
 from modules.misc import GlobalAvgPool2d
 from modules.residual import IdentityResidualBlock
 

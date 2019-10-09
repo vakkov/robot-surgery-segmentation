@@ -17,7 +17,7 @@ from models import RasTerNetV2, TernausNetV2, UNet11, LinkNet34, UNet, UNet16, A
 from loss import LossBinary, LossMulti, FocalAndJaccardLoss, BCEAndLovaszLoss, LovaszSoftmax, SoftIoULoss, SurfaceLoss, Combined, Combined_Lovasz, BCEAndLovaszLoss_J
 from loss2 import BinaryDiceLoss, DiceLoss, Dice_loss, DICELoss
 from modules.wasserstein import WassersteinDice
-from dataset import RoboticsDataset
+from dataset import RoboticsDataset #, SteelDataset
 import utils
 import sys
 from prepare_train_val import get_split
@@ -60,6 +60,9 @@ def main():
     arg('--val_crop_width', type=int, default=1280)
     arg('--type', type=str, default='binary', choices=['binary', 'parts', 'instruments'])
     arg('--model', type=str, default='UNet', choices=moddel_list.keys())
+    arg('--augment', type=bool, default=False)
+    arg('--beta', default=0, type=float, help='hyperparameter beta')
+    arg('--cutmix_prob', default=0, type=float, help='cutmix probability')
 
     args = parser.parse_args()
 
